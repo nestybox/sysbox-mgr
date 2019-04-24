@@ -23,6 +23,8 @@ components (e.g., sysvisor-runc).
 `
 )
 
+// TODO: add config option for subid policy setting (reuse or no-reuse)
+
 func main() {
 	app := cli.NewApp()
 	app.Name = "sysvisor-mgr"
