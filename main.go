@@ -74,6 +74,7 @@ func main() {
 		if err := mgr.Start(); err != nil {
 			return fmt.Errorf("failed to start sysvisor mgr: %v", err)
 		}
+		mgr.Cleanup()
 		logrus.Info("Done.")
 		return nil
 	}
