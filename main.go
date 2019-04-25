@@ -71,6 +71,7 @@ func main() {
 		if err != nil {
 			return fmt.Errorf("failed to create sysvisor mgr: %v", err)
 		}
+		logrus.Infof("Listening on %v", mgr.grpcServer.GetAddr())
 		if err := mgr.Start(); err != nil {
 			return fmt.Errorf("failed to start sysvisor mgr: %v", err)
 		}
