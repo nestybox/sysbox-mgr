@@ -33,7 +33,6 @@ import (
 	intf "github.com/nestybox/sysvisor/sysvisor-mgr/intf"
 	"github.com/nestybox/sysvisor/sysvisor-mgr/lib/buddyAlloc"
 	"github.com/opencontainers/runc/libcontainer/user"
-	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -48,12 +47,18 @@ const (
 	NoReuse                    // do not re-use (allocation fails with error = "exhausted")
 )
 
+type allocInfo struct {
+	uid uint32
+	gid uint32
+}
+
 // subidAlloc class (implements the UidAllocator interface)
 type subidAlloc struct {
-	subuids   []user.SubID        // subuid range(s)
-	subgids   []user.SubID        // subgid range(s)
-	uidAllocs []*buddyAlloc.Buddy // uid allocator(s) (one per contiguous subuid range)
-	gidAllocs []*buddyAlloc.Buddy // gid allocator(s) (one per contiguous subuid range)
+	subuids   []user.SubID         // subuid range(s)
+	subgids   []user.SubID         // subgid range(s)
+	uidAllocs []*buddyAlloc.Buddy  // uid allocator(s) (one per contiguous subuid range)
+	gidAllocs []*buddyAlloc.Buddy  // gid allocator(s) (one per contiguous subuid range)
+	allocMap  map[string]allocInfo // table of container Ids and associated uid/gid allocs
 }
 
 func toBuddyPolicy(p ReusePolicy) buddyAlloc.ReusePolicy {
@@ -108,6 +113,7 @@ func New(userName string, reuse ReusePolicy, subuidSrc, subgidSrc io.Reader) (in
 		subgids:   subgids,
 		uidAllocs: make([]*buddyAlloc.Buddy, len(subuids)),
 		gidAllocs: make([]*buddyAlloc.Buddy, len(subgids)),
+		allocMap:  make(map[string]allocInfo),
 	}
 
 	// for each subuid range that is large enough, create a buddy allocator
@@ -213,7 +219,7 @@ func (sub *subidAlloc) freeGid(gid uint32) error {
 }
 
 // Implements intf.SubidAlloc.Alloc
-func (sub *subidAlloc) Alloc(size uint64) (uint32, uint32, error) {
+func (sub *subidAlloc) Alloc(id string, size uint64) (uint32, uint32, error) {
 
 	uid, err := sub.allocUid(size)
 	if err != nil {
@@ -225,15 +231,20 @@ func (sub *subidAlloc) Alloc(size uint64) (uint32, uint32, error) {
 		return 0, 0, err
 	}
 
-	logrus.Debugf("Alloc(%v): uid = %v, gid = %v\n", size, uid, gid)
-
+	sub.allocMap[id] = allocInfo{uid, gid}
 	return uid, gid, nil
 }
 
 // Implements intf.SubidAlloc.Free
-func (sub *subidAlloc) Free(uid, gid uint32) error {
+func (sub *subidAlloc) Free(id string) error {
 
-	logrus.Debugf("Free(%v, %v)\n", uid, gid)
+	m, ok := sub.allocMap[id]
+	if !ok {
+		return fmt.Errorf("not-found")
+	}
+
+	uid := m.uid
+	gid := m.gid
 
 	err := sub.freeUid(uid)
 	if err != nil {
