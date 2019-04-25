@@ -23,8 +23,6 @@ components (e.g., sysvisor-runc).
 `
 )
 
-// TODO: add config option for subid policy setting (reuse or no-reuse)
-
 func main() {
 	app := cli.NewApp()
 	app.Name = "sysvisor-mgr"
@@ -46,6 +44,11 @@ func main() {
 			Value: "/dev/null",
 			Usage: "log file path",
 		},
+		cli.StringFlag{
+			Name:  "subid-policy",
+			Value: "reuse",
+			Usage: "subid exhaust policy ('reuse' or 'no-reuse')",
+		},
 	}
 
 	app.Before = func(ctx *cli.Context) error {
@@ -63,15 +66,15 @@ func main() {
 	}
 
 	app.Action = func(ctx *cli.Context) error {
-		mgr, err := newSysvisorMgr()
+		logrus.Info("Starting ...")
+		mgr, err := newSysvisorMgr(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to create sysvisor mgr: %v", err)
 		}
-		logrus.Debug("Starting ...")
 		if err := mgr.Start(); err != nil {
 			return fmt.Errorf("failed to start sysvisor mgr: %v", err)
 		}
-		logrus.Debug("Done.")
+		logrus.Info("Done.")
 		return nil
 	}
 
