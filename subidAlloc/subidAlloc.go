@@ -251,7 +251,7 @@ func (sub *subidAlloc) Free(id string) error {
 		return err
 	}
 
-	err = sub.freeGid(uid)
+	err = sub.freeGid(gid)
 	if err != nil {
 		return err
 	}
