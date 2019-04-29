@@ -221,6 +221,10 @@ func (sub *subidAlloc) freeGid(gid uint32) error {
 // Implements intf.SubidAlloc.Alloc
 func (sub *subidAlloc) Alloc(id string, size uint64) (uint32, uint32, error) {
 
+	if _, found := sub.allocMap[id]; found {
+		return 0, 0, fmt.Errorf("exhausted")
+	}
+
 	uid, err := sub.allocUid(size)
 	if err != nil {
 		return 0, 0, err
@@ -238,8 +242,8 @@ func (sub *subidAlloc) Alloc(id string, size uint64) (uint32, uint32, error) {
 // Implements intf.SubidAlloc.Free
 func (sub *subidAlloc) Free(id string) error {
 
-	m, ok := sub.allocMap[id]
-	if !ok {
+	m, found := sub.allocMap[id]
+	if !found {
 		return fmt.Errorf("not-found")
 	}
 
@@ -255,6 +259,8 @@ func (sub *subidAlloc) Free(id string) error {
 	if err != nil {
 		return err
 	}
+
+	delete(sub.allocMap, id)
 
 	return nil
 }
