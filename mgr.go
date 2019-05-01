@@ -6,7 +6,7 @@ import (
 
 	intf "github.com/nestybox/sysvisor/sysvisor-mgr/intf"
 	"github.com/nestybox/sysvisor/sysvisor-mgr/subidAlloc"
-	grpc "github.com/nestybox/sysvisor/sysvisor-protobuf/sysvisorMgrGrpc"
+	grpc "github.com/nestybox/sysvisor/sysvisor-ipc/sysvisorMgrGrpc"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
 )
