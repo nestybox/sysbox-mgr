@@ -29,6 +29,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 
 	intf "github.com/nestybox/sysvisor/sysvisor-mgr/intf"
 	"github.com/nestybox/sysvisor/sysvisor-mgr/lib/buddyAlloc"
@@ -59,6 +60,7 @@ type subidAlloc struct {
 	uidAllocs []*buddyAlloc.Buddy  // uid allocator(s) (one per contiguous subuid range)
 	gidAllocs []*buddyAlloc.Buddy  // gid allocator(s) (one per contiguous subuid range)
 	allocMap  map[string]allocInfo // table of container Ids and associated uid/gid allocs
+	mu        sync.Mutex           // protects allocMap
 }
 
 func toBuddyPolicy(p ReusePolicy) buddyAlloc.ReusePolicy {
@@ -221,9 +223,12 @@ func (sub *subidAlloc) freeGid(gid uint32) error {
 // Implements intf.SubidAlloc.Alloc
 func (sub *subidAlloc) Alloc(id string, size uint64) (uint32, uint32, error) {
 
+	sub.mu.Lock()
 	if _, found := sub.allocMap[id]; found {
+		sub.mu.Unlock()
 		return 0, 0, fmt.Errorf("exhausted")
 	}
+	sub.mu.Unlock()
 
 	uid, err := sub.allocUid(size)
 	if err != nil {
@@ -235,32 +240,37 @@ func (sub *subidAlloc) Alloc(id string, size uint64) (uint32, uint32, error) {
 		return 0, 0, err
 	}
 
+	sub.mu.Lock()
 	sub.allocMap[id] = allocInfo{uid, gid}
+	sub.mu.Unlock()
+
 	return uid, gid, nil
 }
 
 // Implements intf.SubidAlloc.Free
 func (sub *subidAlloc) Free(id string) error {
 
-	m, found := sub.allocMap[id]
+	sub.mu.Lock()
+	alloc, found := sub.allocMap[id]
 	if !found {
+		sub.mu.Unlock()
 		return fmt.Errorf("not-found")
 	}
+	sub.mu.Unlock()
 
-	uid := m.uid
-	gid := m.gid
-
-	err := sub.freeUid(uid)
+	err := sub.freeUid(alloc.uid)
 	if err != nil {
 		return err
 	}
 
-	err = sub.freeGid(gid)
+	err = sub.freeGid(alloc.gid)
 	if err != nil {
 		return err
 	}
 
+	sub.mu.Lock()
 	delete(sub.allocMap, id)
+	sub.mu.Unlock()
 
 	return nil
 }
