@@ -34,6 +34,7 @@ import (
 	intf "github.com/nestybox/sysvisor/sysvisor-mgr/intf"
 	"github.com/nestybox/sysvisor/sysvisor-mgr/lib/buddyAlloc"
 	"github.com/opencontainers/runc/libcontainer/user"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -244,6 +245,8 @@ func (sub *subidAlloc) Alloc(id string, size uint64) (uint32, uint32, error) {
 	sub.allocMap[id] = allocInfo{uid, gid}
 	sub.mu.Unlock()
 
+	logrus.Debugf("Alloc(%v, %v) = %v, %v", id, size, uid, gid)
+
 	return uid, gid, nil
 }
 
@@ -271,6 +274,8 @@ func (sub *subidAlloc) Free(id string) error {
 	sub.mu.Lock()
 	delete(sub.allocMap, id)
 	sub.mu.Unlock()
+
+	logrus.Debugf("Free(%v)", id)
 
 	return nil
 }
