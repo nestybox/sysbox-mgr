@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nestybox/sysvisor/sysvisor-mgr/intf"
+	"github.com/nestybox/sysvisor-mgr/intf"
 )
 
 type allocTest struct {

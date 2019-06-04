@@ -6,9 +6,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/nestybox/sysvisor/sysvisor-mgr/dsVolMgr"
-	intf "github.com/nestybox/sysvisor/sysvisor-mgr/intf"
-	"github.com/nestybox/sysvisor/sysvisor-mgr/subidAlloc"
+	"github.com/nestybox/sysvisor-mgr/dsVolMgr"
+	intf "github.com/nestybox/sysvisor-mgr/intf"
+	"github.com/nestybox/sysvisor-mgr/subidAlloc"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
 )
