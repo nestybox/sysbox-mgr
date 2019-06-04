@@ -3,9 +3,9 @@ package main
 import (
 	"fmt"
 
-	grpc "github.com/nestybox/sysvisor/sysvisor-ipc/sysvisorMgrGrpc"
-	pb "github.com/nestybox/sysvisor/sysvisor-ipc/sysvisorMgrGrpc/protobuf"
-	intf "github.com/nestybox/sysvisor/sysvisor-mgr/intf"
+	grpc "github.com/nestybox/sysvisor-ipc/sysvisorMgrGrpc"
+	pb "github.com/nestybox/sysvisor-ipc/sysvisorMgrGrpc/protobuf"
+	intf "github.com/nestybox/sysvisor-mgr/intf"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/urfave/cli"
 )

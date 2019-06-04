@@ -22,7 +22,7 @@ import (
 	"syscall"
 
 	"github.com/mrunalp/fileutils"
-	"github.com/nestybox/sysvisor/sysvisor-mgr/intf"
+	"github.com/nestybox/sysvisor-mgr/intf"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
