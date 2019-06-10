@@ -12,4 +12,6 @@ require (
 	golang.org/x/sys v0.0.0-20190602015325-4c4f7f33c9ed
 )
 
+replace github.com/nestybox/sysvisor-ipc => ../sysvisor-ipc
+
 replace github.com/opencontainers/runc v0.0.0-00010101000000-000000000000 => ../sysvisor-runc
