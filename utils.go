@@ -5,9 +5,11 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/nestybox/sysvisor-mgr/dsVolMgr"
 	intf "github.com/nestybox/sysvisor-mgr/intf"
+	"github.com/nestybox/sysvisor-mgr/lib/dockerUtils"
 	"github.com/nestybox/sysvisor-mgr/subidAlloc"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
@@ -101,4 +103,20 @@ func removeDirContents(path string) error {
 		}
 	}
 	return nil
+}
+
+func sanitizeRootfs(rootfs string) string {
+	// Sanitize the given container's rootfs. Specifically, in docker containers on
+	// overlayfs the rootfs is usually "/var/lib/docker/overlay2/<container-id>/merged",
+	// but docker removes the "merged" directory during container stop and re-creates it
+	// during container start. Thus, we can't rely on the presence of "merged" to determine
+	// if a container was stopped or removed. Instead, we use the rootfs path up to
+	// <container-id>.
+	if dockerUtils.IsDockerContainer(rootfs) {
+		if strings.Contains(rootfs, "overlay2") && filepath.Base(rootfs) == "merged" {
+			rootfs = filepath.Dir(rootfs)
+		}
+	}
+
+	return rootfs
 }
