@@ -3,6 +3,7 @@ module github.com/nestybox/sysvisor-mgr
 go 1.13
 
 require (
+	github.com/fsnotify/fsnotify v1.4.7
 	github.com/mrunalp/fileutils v0.0.0-20171103030105-7d4729fb3618
 	github.com/nestybox/sysvisor-ipc v0.0.0-20190603003818-483605a8fbcf
 	github.com/nestybox/sysvisor-runc v0.1.2
