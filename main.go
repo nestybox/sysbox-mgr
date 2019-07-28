@@ -13,14 +13,14 @@ import (
 // runc Makefile for an example.
 var version = "TBD"
 
+// subid range required by sysvisor (4k sys containers, each with 64k uid(gids))
+var subidRange uint64 = 268435456
+
 const (
 	usage = `sysvisor manager
 
 sysvisor-mgr is a daemon that provides services to other sysvisor
-components (e.g., sysvisor-runc).
-
-   # sysvisor-mgr
-`
+components (e.g., sysvisor-runc).`
 )
 
 func main() {
@@ -49,6 +49,11 @@ func main() {
 			Value: "reuse",
 			Usage: "subid exhaust policy ('reuse' or 'no-reuse')",
 		},
+		cli.Uint64Flag{
+			Name:  "subid-range",
+			Value: subidRange,
+			Usage: "subid range size (must be a multiple of 64k (each sys container uses 64K uids & gids); must not exceed 4GB)",
+		},
 	}
 
 	app.Before = func(ctx *cli.Context) error {
@@ -61,6 +66,13 @@ func main() {
 				return err
 			}
 			logrus.SetOutput(f)
+		}
+		subidRange = ctx.GlobalUint64("subid-range")
+		if subidRange < (1 << 16) {
+			return fmt.Errorf("invalid subid-range %d; must be >= 64K", subidRange)
+		}
+		if subidRange > (1 << 32) {
+			return fmt.Errorf("invalid subid-range %d; must be <= 4G", subidRange)
 		}
 		return nil
 	}
