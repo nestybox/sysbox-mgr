@@ -1,22 +1,176 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/nestybox/sysvisor-mgr/dsVolMgr"
 	intf "github.com/nestybox/sysvisor-mgr/intf"
 	"github.com/nestybox/sysvisor-mgr/lib/dockerUtils"
 	"github.com/nestybox/sysvisor-mgr/subidAlloc"
+	"github.com/opencontainers/runc/libcontainer/user"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
 )
 
+func allocSubidRange(subID []user.SubID, size, min, max uint64) ([]user.SubID, error) {
+	var holeStart, holeEnd uint64
+
+	if size == 0 {
+		return subID, fmt.Errorf("invalid allocation size: %d", size)
+	}
+
+	holeStart = min
+
+	for _, id := range subID {
+		holeEnd = uint64(id.SubID)
+		if holeEnd-holeStart >= size {
+			subID = append(subID, user.SubID{"sysvisor", int64(holeStart), int64(size)})
+			return subID, nil
+		}
+		holeStart = uint64(id.SubID + id.Count)
+	}
+
+	holeEnd = max
+	if holeEnd-holeStart < size {
+		return subID, fmt.Errorf("failed to allocate %d subids in range %d, %d", size, min, max)
+	}
+
+	subID = append(subID, user.SubID{"sysvisor", int64(holeStart), int64(size)})
+	return subID, nil
+}
+
+func writeSubidFile(path string, subID []user.SubID) error {
+
+	// TODO: lock the /etc/subuid(gid) file (?)
+
+	var buf bytes.Buffer
+	for _, id := range subID {
+		l := fmt.Sprintf("%s:%d:%d\n", id.Name, id.SubID, id.Count)
+		buf.WriteString(l)
+	}
+
+	return ioutil.WriteFile(path, []byte(buf.String()), 644)
+}
+
+func configSubidRange(path string, size, min, max uint64) error {
+
+	subID, err := user.ParseSubIDFile(path)
+	if err != nil {
+		return fmt.Errorf("error parsing file %s: %s", path, err)
+	}
+
+	// TODO: this only handles zero or one entries for user "sysvisor" in the subuid file;
+	// it's possible (but rare) that there are multiple such entries though.
+
+	index := -1
+	for i, id := range subID {
+		if id.Name == "sysvisor" {
+			if uint64(id.Count) == size {
+				return nil
+			}
+			index = i
+		}
+	}
+
+	if index >= 0 {
+		copy(subID[index:], subID[index+1:])
+		subID = subID[:len(subID)-1]
+	}
+
+	subID, err = allocSubidRange(subID, size, min, max)
+	if err != nil {
+		return fmt.Errorf("failed to configure subid range for sysvisor: %s", err)
+	}
+
+	if err = writeSubidFile(path, subID); err != nil {
+		return fmt.Errorf("failed to configure subid range for sysvisor: %s", err)
+	}
+
+	return nil
+}
+
+// getSubidLimits returns the subuid min, subuid max, subgid min, and subgid max limits
+// for the host (in that order)
+func getSubidLimits(file string) ([]uint64, error) {
+
+	// defaults (see login.defs(5); we set the max limits to 2^32 because uid(gid)
+	// are 32-bit, even though login.defs(5) indicates it's above this value)
+	limits := []uint64{100000, 4294967295, 100000, 4294967295}
+
+	// check if these defaults are overriden by login.defs; if login.defs does not exist, move on.
+	f, err := os.Open(file)
+	if err != nil {
+		return limits, nil
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.Contains(line, "SUB_UID_MIN") {
+			valStr := strings.Split(line, " ")[1]
+			limits[0], err = strconv.ParseUint(valStr, 10, 64)
+		}
+		if strings.Contains(line, "SUB_UID_MAX") {
+			valStr := strings.Split(line, " ")[1]
+			limits[1], err = strconv.ParseUint(valStr, 10, 64)
+		}
+		if strings.Contains(line, "SUB_GID_MIN") {
+			valStr := strings.Split(line, " ")[1]
+			limits[2], err = strconv.ParseUint(valStr, 10, 64)
+		}
+		if strings.Contains(line, "SUB_GID_MAX") {
+			valStr := strings.Split(line, " ")[1]
+			limits[3], err = strconv.ParseUint(valStr, 10, 64)
+		}
+		if err != nil {
+			return limits, fmt.Errorf("failed to parse line %s: %s", line, err)
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return limits, fmt.Errorf("failed to scan file %s: %v", file, err)
+	}
+
+	return limits, nil
+}
+
 func setupSubidAlloc(ctx *cli.Context) (intf.SubidAlloc, error) {
 	var reusePol subidAlloc.ReusePolicy
+
+	// get subid min/max limits from login.defs (if any)
+	limits, err := getSubidLimits("/etc/login.defs")
+	if err != nil {
+		return nil, err
+	}
+
+	subUidMin := limits[0]
+	subUidMax := limits[1]
+	subGidMin := limits[2]
+	subGidMax := limits[3]
+
+	// configure the subuid(gid) range for "sysvisor"
+	if err := configSubidRange("/etc/subuid", subidRange, subUidMin, subUidMax); err != nil {
+		return nil, err
+	}
+	if err := configSubidRange("/etc/subgid", subidRange, subGidMin, subGidMax); err != nil {
+		return nil, err
+	}
+
+	if ctx.GlobalString("subid-policy") == "no-reuse" {
+		reusePol = subidAlloc.NoReuse
+		logrus.Infof("Subid allocation exhaust policy set to \"no-reuse\"")
+	} else {
+		reusePol = subidAlloc.Reuse
+		logrus.Infof("Subid allocation exhaust policy set to \"reuse\"")
+	}
 
 	subuidSrc, err := os.Open("/etc/subuid")
 	if err != nil {
@@ -29,14 +183,6 @@ func setupSubidAlloc(ctx *cli.Context) (intf.SubidAlloc, error) {
 		return nil, err
 	}
 	defer subgidSrc.Close()
-
-	if ctx.GlobalString("subid-policy") == "no-reuse" {
-		reusePol = subidAlloc.NoReuse
-		logrus.Infof("Subid allocation exhaust policy set to \"no-reuse\"")
-	} else {
-		reusePol = subidAlloc.Reuse
-		logrus.Infof("Subid allocation exhaust policy set to \"reuse\"")
-	}
 
 	subidAlloc, err := subidAlloc.New("sysvisor", reusePol, subuidSrc, subgidSrc)
 	if err != nil {
