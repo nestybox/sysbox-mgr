@@ -41,7 +41,7 @@ func main() {
 		},
 		cli.StringFlag{
 			Name:  "log",
-			Value: "/dev/null",
+			Value: "/dev/stdout",
 			Usage: "log file path",
 		},
 		cli.StringFlag{
