@@ -31,11 +31,10 @@ import (
 // The docker storage directory can't be on the following filesystems, as docker inside
 // the sys container uses overlayfs for its images and overlayfs can't be mounted on top
 // of these.
-//
-// TODO: add shiftfs to the list, once we have the shiftfs magic defined.
 var unsupportedFs = map[string]int64{
-	"tmpfs":     unix.TMPFS_MAGIC,
-	"overlayfs": unix.OVERLAYFS_SUPER_MAGIC,
+	"tmpfs":        unix.TMPFS_MAGIC,
+	"overlayfs":    unix.OVERLAYFS_SUPER_MAGIC,
+	"nbox_shiftfs": 0x6e627366,
 }
 
 var checkUnsupportedFs = true // unit tests set this to false to ease testing
