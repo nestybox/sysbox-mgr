@@ -65,6 +65,13 @@ func main() {
 			if err != nil {
 				return err
 			}
+
+			// Set a proper logging formatter.
+			logrus.SetFormatter(&logrus.TextFormatter{
+				ForceColors: true,
+				TimestampFormat : "2006-01-02 15:04:05",
+				FullTimestamp: true,
+			})
 			logrus.SetOutput(f)
 		}
 		subidRange = ctx.GlobalUint64("subid-range")
