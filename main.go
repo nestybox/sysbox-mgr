@@ -35,14 +35,15 @@ func main() {
 	app.Version = strings.Join(v, "\n")
 
 	app.Flags = []cli.Flag{
-		cli.BoolFlag{
-			Name:  "debug, d",
-			Usage: "enable debug output in logs",
-		},
 		cli.StringFlag{
 			Name:  "log",
 			Value: "/dev/stdout",
 			Usage: "log file path",
+		},
+		cli.StringFlag{
+			Name:  "log-level",
+			Value: "info",
+			Usage: "log categories to include (debug, info, warning, error, fatal)",
 		},
 		cli.StringFlag{
 			Name:  "subid-policy",
@@ -74,6 +75,28 @@ func main() {
 			})
 			logrus.SetOutput(f)
 		}
+
+		// Set desired log-level.
+		if logLevel := ctx.GlobalString("log-level"); logLevel != "" {
+			switch logLevel {
+			case "debug":
+				logrus.SetLevel(logrus.DebugLevel)
+			case "info":
+				logrus.SetLevel(logrus.InfoLevel)
+			case "warning":
+				logrus.SetLevel(logrus.WarnLevel)
+			case "error":
+				logrus.SetLevel(logrus.ErrorLevel)
+			case "fatal":
+				logrus.SetLevel(logrus.FatalLevel)
+			default:
+				logrus.Fatalf("'%v' log-level option not recognized", logLevel)
+			}
+		} else {
+			// Set 'info' as our default log-level.
+			logrus.SetLevel(logrus.InfoLevel)
+		}
+
 		subidRange = ctx.GlobalUint64("subid-range")
 		if subidRange < (1 << 16) {
 			return fmt.Errorf("invalid subid-range %d; must be >= 64K", subidRange)
@@ -81,6 +104,7 @@ func main() {
 		if subidRange > (1 << 32) {
 			return fmt.Errorf("invalid subid-range %d; must be <= 4G", subidRange)
 		}
+
 		return nil
 	}
 
