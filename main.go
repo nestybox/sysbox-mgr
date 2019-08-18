@@ -9,10 +9,6 @@ import (
 	"github.com/urfave/cli"
 )
 
-// TODO: version shold populated by the Makefile as set in the sysvisor VERSION file; see
-// runc Makefile for an example.
-var version = "TBD"
-
 // subid range required by sysvisor (4k sys containers, each with 64k uid(gids))
 var subidRange uint64 = 268435456
 
@@ -23,10 +19,19 @@ sysvisor-mgr is a daemon that provides services to other sysvisor
 components (e.g., sysvisor-runc).`
 )
 
+// Globals to be populated at build time during Makefile processing.
+var (
+	version   string // extracted from VERSION file
+	commitId  string // latest git commit-id of sysvisor superproject
+	builtAt   string // build time
+	builtBy   string // build owner
+)
+
 func main() {
 	app := cli.NewApp()
 	app.Name = "sysvisor-mgr"
 	app.Usage = usage
+	app.Version = version
 
 	var v []string
 	if version != "" {
@@ -55,6 +60,16 @@ func main() {
 			Value: subidRange,
 			Usage: "subid range size (must be a multiple of 64k (each sys container uses 64K uids & gids); must not exceed 4GB)",
 		},
+	}
+
+	// show-version specialization.
+	cli.VersionPrinter = func(c *cli.Context) {
+		fmt.Printf("sysvisor-mgr\n" +
+			"\tversion: \t%s\n" +
+			"\tcommit: \t%s\n" +
+			"\tbuilt at: \t%s\n" +
+			"\tbuilt by: \t%s\n",
+			c.App.Version, commitId, builtAt, builtBy)
 	}
 
 	app.Before = func(ctx *cli.Context) error {
