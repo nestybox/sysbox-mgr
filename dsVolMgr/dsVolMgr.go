@@ -2,10 +2,10 @@
 // the sys container's Docker storage area (typically "/var/lib/docker"). This functionality
 // is needed in order to:
 //
-// * Remove the requirement for storing sysvisor system container images in a filesystem
+// * Remove the requirement for storing sysvisor container images in a filesystem
 //   that supports Docker-in-Docker (e.g., btrfs).
 //
-// * Allow Docker-in-Docker when the outer docker (system container) is using uid-shifting
+// * Allow Docker-in-Docker when the outer docker is using uid-shifting
 //   (via the shiftfs module). This is needed because the inner Docker mounts overlayfs on
 //   top of the container images on `/var/lib/docker/`, but overlayfs does not work when
 //   mounted on top of shiftfs, so shiftfs can't be mounted on `/var/lib/docker`.

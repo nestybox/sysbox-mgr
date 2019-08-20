@@ -6,7 +6,7 @@ provides miscellaneous services to other sysvisor-components.
 Currently it provides these services:
 
 * subid allocation: allocates an exclusive range of subuid and subgids
-  for each system container; service is invoked by sysvisor-runc.
+  for each container; service is invoked by sysvisor-runc.
 
 In the future it is expected to provide further services to sysvisor-runc
 as well as sysvisor-fs.
