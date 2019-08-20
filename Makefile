@@ -15,7 +15,7 @@ SYSMGR_GRPC_DIR := ../sysvisor-ipc/sysvisorMgrGrpc
 SYSMGR_GRPC_SRC := $(shell find $(SYSMGR_GRPC_DIR) 2>&1 | grep -E '.*\.(c|h|go|proto)$$')
 
 LDFLAGS := '-X main.version=${VERSION} -X main.commitId=${COMMIT_ID} \
-			-X "main.builtAt=${BUILD_AT}" -X main.builtBy=${BUILD_BY}'
+			-X "main.builtAt=${BUILT_AT}" -X main.builtBy=${BUILT_BY}'
 
 sysvisor-mgr: $(SYSMGR_SRC) $(SYSMGR_GRPC_SRC)
 	$(GO) build -ldflags ${LDFLAGS} -o sysvisor-mgr
