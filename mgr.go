@@ -5,17 +5,17 @@ import (
 	"sync"
 
 	"github.com/fsnotify/fsnotify"
-	grpc "github.com/nestybox/sysvisor-ipc/sysvisorMgrGrpc"
-	pb "github.com/nestybox/sysvisor-ipc/sysvisorMgrGrpc/protobuf"
-	intf "github.com/nestybox/sysvisor-mgr/intf"
+	grpc "github.com/nestybox/sysbox-ipc/sysboxMgrGrpc"
+	pb "github.com/nestybox/sysbox-ipc/sysboxMgrGrpc/protobuf"
+	intf "github.com/nestybox/sysbox-mgr/intf"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
 )
 
 const (
-	sysvisorRunDir = "/run/sysvisor"
-	sysvisorLibDir = "/var/lib/sysvisor"
+	sysboxdRunDir = "/run/sysboxd"
+	sysboxdLibDir = "/var/lib/sysboxd"
 )
 
 type containerState int
@@ -38,7 +38,7 @@ type containerInfo struct {
 	uidInfo   uidInfo
 }
 
-type SysvisorMgr struct {
+type SysboxMgr struct {
 	grpcServer    *grpc.ServerStub
 	subidAlloc    intf.SubidAlloc
 	dsVolMgr      intf.VolMgr
@@ -50,8 +50,8 @@ type SysvisorMgr struct {
 	rootfsWatcher *fsnotify.Watcher
 }
 
-// newSysvisorMgr creates an instance of the sysvisor manager
-func newSysvisorMgr(ctx *cli.Context) (*SysvisorMgr, error) {
+// newSysboxMgr creates an instance of the sysbox manager
+func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 	err := setupWorkDirs()
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup the work dir: %v", err)
@@ -67,7 +67,7 @@ func newSysvisorMgr(ctx *cli.Context) (*SysvisorMgr, error) {
 		return nil, err
 	}
 
-	mgr := &SysvisorMgr{
+	mgr := &SysboxMgr{
 		subidAlloc:    subidAlloc,
 		dsVolMgr:      dsVolMgr,
 		contTable:     make(map[string]containerInfo),
@@ -87,7 +87,7 @@ func newSysvisorMgr(ctx *cli.Context) (*SysvisorMgr, error) {
 	return mgr, nil
 }
 
-func (mgr *SysvisorMgr) Start() error {
+func (mgr *SysboxMgr) Start() error {
 
 	// setup rootfs watcher (to detect container removal)
 	w, err := fsnotify.NewWatcher()
@@ -103,7 +103,7 @@ func (mgr *SysvisorMgr) Start() error {
 	return mgr.grpcServer.Init()
 }
 
-func (mgr *SysvisorMgr) Cleanup() error {
+func (mgr *SysboxMgr) Cleanup() error {
 	mgr.rootfsMonStop <- 1
 
 	if err := mgr.rootfsWatcher.Close(); err != nil {
@@ -117,8 +117,8 @@ func (mgr *SysvisorMgr) Cleanup() error {
 	return nil
 }
 
-// Registers a container with sysvisor-mgr
-func (mgr *SysvisorMgr) register(id string) error {
+// Registers a container with sysbox-mgr
+func (mgr *SysboxMgr) register(id string) error {
 	mgr.ctLock.Lock()
 	info, found := mgr.contTable[id]
 	if !found {
@@ -155,8 +155,8 @@ func (mgr *SysvisorMgr) register(id string) error {
 	return nil
 }
 
-// Unregisters a container with sysvisor-mgr
-func (mgr *SysvisorMgr) unregister(id string) error {
+// Unregisters a container with sysbox-mgr
+func (mgr *SysboxMgr) unregister(id string) error {
 
 	// update container state
 	mgr.ctLock.Lock()
@@ -189,7 +189,7 @@ func (mgr *SysvisorMgr) unregister(id string) error {
 }
 
 // rootfs monitor thread: checks for rootfs removal event and removes container.
-func (mgr *SysvisorMgr) rootfsMon() {
+func (mgr *SysboxMgr) rootfsMon() {
 	logrus.Debugf("rootfsMon starting ...")
 
 	for {
@@ -222,7 +222,7 @@ func (mgr *SysvisorMgr) rootfsMon() {
 }
 
 // removes all resources associated with a container
-func (mgr *SysvisorMgr) removeCont(id string) {
+func (mgr *SysboxMgr) removeCont(id string) {
 
 	mgr.ctLock.Lock()
 	info, found := mgr.contTable[id]
@@ -252,7 +252,7 @@ func (mgr *SysvisorMgr) removeCont(id string) {
 	logrus.Infof("released resources for container %s", id)
 }
 
-func (mgr *SysvisorMgr) reqSupMounts(id string, rootfs string, uid, gid uint32, shiftUids bool) ([]*pb.Mount, error) {
+func (mgr *SysboxMgr) reqSupMounts(id string, rootfs string, uid, gid uint32, shiftUids bool) ([]*pb.Mount, error) {
 
 	// update container info
 	mgr.ctLock.Lock()
@@ -296,7 +296,7 @@ func (mgr *SysvisorMgr) reqSupMounts(id string, rootfs string, uid, gid uint32, 
 	return protoMounts, nil
 }
 
-func (mgr *SysvisorMgr) allocSubid(id string, size uint64) (uint32, uint32, error) {
+func (mgr *SysboxMgr) allocSubid(id string, size uint64) (uint32, uint32, error) {
 
 	mgr.ctLock.Lock()
 	info, found := mgr.contTable[id]

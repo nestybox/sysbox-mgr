@@ -10,10 +10,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/nestybox/sysvisor-mgr/dsVolMgr"
-	intf "github.com/nestybox/sysvisor-mgr/intf"
-	"github.com/nestybox/sysvisor-mgr/lib/dockerUtils"
-	"github.com/nestybox/sysvisor-mgr/subidAlloc"
+	"github.com/nestybox/sysbox-mgr/dsVolMgr"
+	intf "github.com/nestybox/sysbox-mgr/intf"
+	"github.com/nestybox/sysbox-mgr/lib/dockerUtils"
+	"github.com/nestybox/sysbox-mgr/subidAlloc"
 	"github.com/opencontainers/runc/libcontainer/user"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
@@ -31,7 +31,7 @@ func allocSubidRange(subID []user.SubID, size, min, max uint64) ([]user.SubID, e
 	for _, id := range subID {
 		holeEnd = uint64(id.SubID)
 		if holeEnd-holeStart >= size {
-			subID = append(subID, user.SubID{"sysvisor", int64(holeStart), int64(size)})
+			subID = append(subID, user.SubID{"sysboxd", int64(holeStart), int64(size)})
 			return subID, nil
 		}
 		holeStart = uint64(id.SubID + id.Count)
@@ -42,7 +42,7 @@ func allocSubidRange(subID []user.SubID, size, min, max uint64) ([]user.SubID, e
 		return subID, fmt.Errorf("failed to allocate %d subids in range %d, %d", size, min, max)
 	}
 
-	subID = append(subID, user.SubID{"sysvisor", int64(holeStart), int64(size)})
+	subID = append(subID, user.SubID{"sysboxd", int64(holeStart), int64(size)})
 	return subID, nil
 }
 
@@ -66,12 +66,12 @@ func configSubidRange(path string, size, min, max uint64) error {
 		return fmt.Errorf("error parsing file %s: %s", path, err)
 	}
 
-	// TODO: this only handles zero or one entries for user "sysvisor" in the subuid file;
+	// TODO: this only handles zero or one entries for user "sysboxd" in the subuid file;
 	// it's possible (but rare) that there are multiple such entries though.
 
 	index := -1
 	for i, id := range subID {
-		if id.Name == "sysvisor" {
+		if id.Name == "sysboxd" {
 			if uint64(id.Count) == size {
 				return nil
 			}
@@ -86,11 +86,11 @@ func configSubidRange(path string, size, min, max uint64) error {
 
 	subID, err = allocSubidRange(subID, size, min, max)
 	if err != nil {
-		return fmt.Errorf("failed to configure subid range for sysvisor: %s", err)
+		return fmt.Errorf("failed to configure subid range for sysboxd: %s", err)
 	}
 
 	if err = writeSubidFile(path, subID); err != nil {
-		return fmt.Errorf("failed to configure subid range for sysvisor: %s", err)
+		return fmt.Errorf("failed to configure subid range for sysboxd: %s", err)
 	}
 
 	return nil
@@ -156,7 +156,7 @@ func setupSubidAlloc(ctx *cli.Context) (intf.SubidAlloc, error) {
 	subGidMin := limits[2]
 	subGidMax := limits[3]
 
-	// configure the subuid(gid) range for "sysvisor"
+	// configure the subuid(gid) range for "sysboxd"
 	if err := configSubidRange("/etc/subuid", subidRange, subUidMin, subUidMax); err != nil {
 		return nil, err
 	}
@@ -184,7 +184,7 @@ func setupSubidAlloc(ctx *cli.Context) (intf.SubidAlloc, error) {
 	}
 	defer subgidSrc.Close()
 
-	subidAlloc, err := subidAlloc.New("sysvisor", reusePol, subuidSrc, subgidSrc)
+	subidAlloc, err := subidAlloc.New("sysboxd", reusePol, subuidSrc, subgidSrc)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create the subid allocator: %v", err)
 	}
@@ -193,7 +193,7 @@ func setupSubidAlloc(ctx *cli.Context) (intf.SubidAlloc, error) {
 }
 
 func setupDsVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
-	hostDir := filepath.Join(sysvisorLibDir, "docker")
+	hostDir := filepath.Join(sysboxdLibDir, "docker")
 	if err := os.MkdirAll(hostDir, 0700); err != nil {
 		return nil, fmt.Errorf("failed to create %v: %v", hostDir, err)
 	}
@@ -208,10 +208,10 @@ func setupWorkDirs() error {
 	if err := cleanupWorkDirs(); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(sysvisorRunDir, 0700); err != nil {
+	if err := os.MkdirAll(sysboxdRunDir, 0700); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(sysvisorLibDir, 0700); err != nil {
+	if err := os.MkdirAll(sysboxdLibDir, 0700); err != nil {
 		return err
 	}
 	return nil
@@ -219,16 +219,16 @@ func setupWorkDirs() error {
 
 func cleanupWorkDirs() error {
 
-	if _, err := os.Stat(sysvisorRunDir); err == nil {
-		if err := removeDirContents(sysvisorRunDir); err != nil {
+	if _, err := os.Stat(sysboxdRunDir); err == nil {
+		if err := removeDirContents(sysboxdRunDir); err != nil {
 			return err
 		}
 	} else if !os.IsNotExist(err) {
 		return err
 	}
 
-	if _, err := os.Stat(sysvisorLibDir); err == nil {
-		if err := removeDirContents(sysvisorLibDir); err != nil {
+	if _, err := os.Stat(sysboxdLibDir); err == nil {
+		if err := removeDirContents(sysboxdLibDir); err != nil {
 			return err
 		}
 	} else if !os.IsNotExist(err) {

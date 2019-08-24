@@ -9,27 +9,27 @@ import (
 	"github.com/urfave/cli"
 )
 
-// subid range required by sysvisor (4k sys containers, each with 64k uid(gids))
+// subid range required by sysboxd (4k sys containers, each with 64k uid(gids))
 var subidRange uint64 = 268435456
 
 const (
-	usage = `sysvisor manager
+	usage = `sysboxd manager
 
-sysvisor-mgr is a daemon that provides services to other sysvisor
-components (e.g., sysvisor-runc).`
+sysbox-mgr is the sysboxd manager daemon. It's main job is to provides services to other
+sysboxd components (e.g., sysbox-runc).`
 )
 
 // Globals to be populated at build time during Makefile processing.
 var (
-	version   string // extracted from VERSION file
-	commitId  string // latest git commit-id of sysvisor superproject
-	builtAt   string // build time
-	builtBy   string // build owner
+	version  string // extracted from VERSION file
+	commitId string // latest git commit-id of sysboxd superproject
+	builtAt  string // build time
+	builtBy  string // build owner
 )
 
 func main() {
 	app := cli.NewApp()
-	app.Name = "sysvisor-mgr"
+	app.Name = "sysbox-mgr"
 	app.Usage = usage
 	app.Version = version
 
@@ -64,10 +64,10 @@ func main() {
 
 	// show-version specialization.
 	cli.VersionPrinter = func(c *cli.Context) {
-		fmt.Printf("sysvisor-mgr\n" +
-			"\tversion: \t%s\n" +
-			"\tcommit: \t%s\n" +
-			"\tbuilt at: \t%s\n" +
+		fmt.Printf("sysbox-mgr\n"+
+			"\tversion: \t%s\n"+
+			"\tcommit: \t%s\n"+
+			"\tbuilt at: \t%s\n"+
 			"\tbuilt by: \t%s\n",
 			c.App.Version, commitId, builtAt, builtBy)
 	}
@@ -84,9 +84,9 @@ func main() {
 
 			// Set a proper logging formatter.
 			logrus.SetFormatter(&logrus.TextFormatter{
-				ForceColors: true,
-				TimestampFormat : "2006-01-02 15:04:05",
-				FullTimestamp: true,
+				ForceColors:     true,
+				TimestampFormat: "2006-01-02 15:04:05",
+				FullTimestamp:   true,
 			})
 			logrus.SetOutput(f)
 		}
@@ -125,13 +125,13 @@ func main() {
 
 	app.Action = func(ctx *cli.Context) error {
 		logrus.Info("Starting ...")
-		mgr, err := newSysvisorMgr(ctx)
+		mgr, err := newSysboxMgr(ctx)
 		if err != nil {
-			return fmt.Errorf("failed to create sysvisor mgr: %v", err)
+			return fmt.Errorf("failed to create sysbox-mgr: %v", err)
 		}
 		logrus.Infof("Listening on %v", mgr.grpcServer.GetAddr())
 		if err := mgr.Start(); err != nil {
-			return fmt.Errorf("failed to start sysvisor mgr: %v", err)
+			return fmt.Errorf("failed to start sysbox-mgr: %v", err)
 		}
 		mgr.Cleanup()
 		logrus.Info("Done.")
