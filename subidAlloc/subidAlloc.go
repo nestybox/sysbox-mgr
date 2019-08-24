@@ -31,9 +31,9 @@ import (
 	"io"
 	"sync"
 
-	intf "github.com/nestybox/sysvisor-mgr/intf"
-	"github.com/nestybox/sysvisor-mgr/lib/buddyAlloc"
-	"github.com/nestybox/sysvisor-runc/libcontainer/user"
+	intf "github.com/nestybox/sysbox-mgr/intf"
+	"github.com/nestybox/sysbox-mgr/lib/buddyAlloc"
+	"github.com/nestybox/sysbox-runc/libcontainer/user"
 	"github.com/sirupsen/logrus"
 )
 

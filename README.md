@@ -1,37 +1,32 @@
-# sysvisor-mgr
+# sysbox-mgr
 
-The Sysvisor Manager (aka sysvisor-mgr) is a daemon that
-provides miscellaneous services to other sysvisor-components.
+The Sysboxd Manager (aka sysbox-mgr) is a daemon that
+provides miscellaneous services to other sysboxd components.
 
 Currently it provides these services:
 
 * subid allocation: allocates an exclusive range of subuid and subgids
-  for each container; service is invoked by sysvisor-runc.
+  for each system container; service is invoked by sysbox-runc.
 
-In the future it is expected to provide further services to sysvisor-runc
-as well as sysvisor-fs.
+* docker-store-volume-management: creates a directory on the host
+  that is mounted into the system container's `/var/lib/docker`.
+  This way, the overlayfs over overlayfs scenario created by running
+  docker-in-docker is avoided.
 
-# Build
+In the future it is expected to provide further services to sysbox-runc
+as well as sysbox-fs.
 
-sysvisor-mgr is build with the sysvisor Makefile.
+# Build & Usage
 
-```
-cd sysvisor
-make && sudo make install
-```
-
-# Usage
-
-```
-$ sudo sysvisor-mgr
-```
+sysbox-mgr is built with the sysboxd Makefile. Refer to that sysboxd
+[README](../README.md) file for details.
 
 # gRPC
 
-sysvisor-mgr listens on a unix-domain socket(s) for gRPC from other
-sysvisor components.
+sysbox-mgr listens on a unix-domain socket for gRPC from other sysboxd
+components.
 
-Currently a single gRPC is used (between sysvisor-runc and sysvisor-mgr).
+Currently a single gRPC is used (between sysbox-runc and sysbox-mgr).
 
-In the future other gRPCs may be created (e.g,. for communication between
-sysvisor-fs and sysvisor-mgr).
+In the future other gRPCs may be created (e.g,. for communication
+between sysbox-fs and sysbox-mgr).

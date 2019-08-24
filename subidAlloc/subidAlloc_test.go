@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nestybox/sysvisor-mgr/intf"
+	"github.com/nestybox/sysbox-mgr/intf"
 )
 
 type allocTest struct {
@@ -166,9 +166,8 @@ func TestAllocErrors(t *testing.T) {
 		{"1", 65536, 0, 0, "exhausted"},
 	}
 
-	testAlloc(t, subidAlloc, tests)	
+	testAlloc(t, subidAlloc, tests)
 }
-
 
 func TestFreeBasic(t *testing.T) {
 	var err error
@@ -383,4 +382,3 @@ func TestAllocMultiRange(t *testing.T) {
 
 	testAlloc(t, subidAlloc, tests)
 }
-
