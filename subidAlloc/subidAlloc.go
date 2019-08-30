@@ -1,3 +1,7 @@
+//
+// Copyright: (C) 2019 Nestybox Inc.  All rights reserved.
+//
+
 // sub user-id and sub group-id allocator
 //
 // The subidAlloc class allocates portions of the subuid and subgid ranges associated

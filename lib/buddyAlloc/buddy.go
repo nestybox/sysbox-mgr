@@ -1,3 +1,7 @@
+//
+// Copyright: (C) 2019 Nestybox Inc.  All rights reserved.
+//
+
 // Implementation of a generic buddy allocator.
 //
 // The Buddy class represents a buddy allocator which is initialized with an initial
