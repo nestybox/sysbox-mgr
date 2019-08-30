@@ -1,3 +1,7 @@
+//
+// Copyright: (C) 2019 Nestybox Inc.  All rights reserved.
+//
+
 // The docker-store volume manager creates and removes directories on the host that back
 // the sys container's Docker storage area (typically "/var/lib/docker"). This functionality
 // is needed in order to:
