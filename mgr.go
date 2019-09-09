@@ -18,8 +18,8 @@ import (
 )
 
 const (
-	sysboxdRunDir = "/run/sysboxd"
-	sysboxdLibDir = "/var/lib/sysboxd"
+	sysboxRunDir = "/run/sysbox"
+	sysboxLibDir = "/var/lib/sysbox"
 )
 
 type containerState int

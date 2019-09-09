@@ -41,7 +41,7 @@ func TestAllocSubidRange(t *testing.T) {
 	if err != nil {
 		t.Errorf("AllocSubidRange(): %v", err)
 	}
-	want = append(subID, user.SubID{"sysboxd", 231072, 65536})
+	want = append(subID, user.SubID{"sysbox", 231072, 65536})
 	compareSubidRanges(t, want, got)
 
 	// at beginning of range
@@ -52,7 +52,7 @@ func TestAllocSubidRange(t *testing.T) {
 	if err != nil {
 		t.Errorf("AllocSubidRange(): %v", err)
 	}
-	want = append(subID, user.SubID{"sysboxd", 100000, 65536})
+	want = append(subID, user.SubID{"sysbox", 100000, 65536})
 	compareSubidRanges(t, want, got)
 
 	// in middle of range
@@ -64,7 +64,7 @@ func TestAllocSubidRange(t *testing.T) {
 	if err != nil {
 		t.Errorf("AllocSubidRange(): %v", err)
 	}
-	want = append(subID, user.SubID{"sysboxd", 165536, 65536})
+	want = append(subID, user.SubID{"sysbox", 165536, 65536})
 	compareSubidRanges(t, want, got)
 
 	// empty range
@@ -73,7 +73,7 @@ func TestAllocSubidRange(t *testing.T) {
 	if err != nil {
 		t.Errorf("AllocSubidRange(): %v", err)
 	}
-	want = append(subID, user.SubID{"sysboxd", 100000, 65536})
+	want = append(subID, user.SubID{"sysbox", 100000, 65536})
 	compareSubidRanges(t, want, got)
 
 	// not enought ids
@@ -112,7 +112,7 @@ func TestAllocSubidRange(t *testing.T) {
 	if err != nil {
 		t.Errorf("AllocSubidRange(): %v", err)
 	}
-	want = append(subID, user.SubID{"sysboxd", 165535, 1})
+	want = append(subID, user.SubID{"sysbox", 165535, 1})
 	compareSubidRanges(t, want, got)
 
 	// invalid min/max/size
@@ -178,7 +178,7 @@ func TestConfigSubidRange(t *testing.T) {
 user2:165536:65536`
 	subidFilePost = `user1:100000:65536
 user2:165536:65536
-sysboxd:231072:268435456
+sysbox:231072:268435456
 `
 	if err := testConfigSubidRangeHelper(subidFilePre, subidFilePost, 268435456, 100000, 600100000); err != nil {
 		t.Errorf(err.Error())
@@ -187,7 +187,7 @@ sysboxd:231072:268435456
 	// at beginning of range
 	subidFilePre = `user2:165536:65536`
 	subidFilePost = `user2:165536:65536
-sysboxd:100000:65536
+sysbox:100000:65536
 `
 	if err := testConfigSubidRangeHelper(subidFilePre, subidFilePost, 65536, 100000, 600100000); err != nil {
 		t.Errorf(err.Error())
@@ -198,7 +198,7 @@ sysboxd:100000:65536
 user2:231072:65536`
 	subidFilePost = `user1:100000:65536
 user2:231072:65536
-sysboxd:165536:65536
+sysbox:165536:65536
 `
 	if err := testConfigSubidRangeHelper(subidFilePre, subidFilePost, 65536, 100000, 600100000); err != nil {
 		t.Errorf(err.Error())

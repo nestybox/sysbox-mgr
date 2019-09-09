@@ -17,7 +17,7 @@ func TestParseDataRoot(t *testing.T) {
 
 	filename := filepath.Join(tmpDir, "daemon.json")
 
-	var data = []byte(`{"data-root":"/some/dir", "debug":false, "userns-remap":"sysboxd"}`)
+	var data = []byte(`{"data-root":"/some/dir", "debug":false, "userns-remap":"sysbox"}`)
 	err = ioutil.WriteFile(filename, data, 0644)
 	if err != nil {
 		t.Errorf("writeFile failed: %s", err)
