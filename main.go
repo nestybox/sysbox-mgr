@@ -13,20 +13,20 @@ import (
 	"github.com/urfave/cli"
 )
 
-// subid range required by sysboxd (4k sys containers, each with 64k uid(gids))
+// subid range required by sysbox (4k sys containers, each with 64k uid(gids))
 var subidRange uint64 = 268435456
 
 const (
-	usage = `sysboxd manager
+	usage = `sysbox manager
 
-sysbox-mgr is the sysboxd manager daemon. It's main job is to provides services to other
-sysboxd components (e.g., sysbox-runc).`
+sysbox-mgr is the sysbox manager daemon. It's main job is to provides services to other
+sysbox components (e.g., sysbox-runc).`
 )
 
 // Globals to be populated at build time during Makefile processing.
 var (
 	version  string // extracted from VERSION file
-	commitId string // latest git commit-id of sysboxd superproject
+	commitId string // latest git commit-id of sysbox superproject
 	builtAt  string // build time
 	builtBy  string // build owner
 )

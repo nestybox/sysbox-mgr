@@ -6,7 +6,7 @@
 // the sys container's Docker storage area (typically "/var/lib/docker"). This functionality
 // is needed in order to:
 //
-// * Remove the requirement for storing sysboxd system container images in a filesystem
+// * Remove the requirement for storing sysbox system container images in a filesystem
 //   that supports Docker-in-Docker (e.g., btrfs).
 //
 // * Allow Docker-in-Docker when the outer docker is using uid-shifting
@@ -14,7 +14,7 @@
 //   top of the container images on `/var/lib/docker/`, but overlayfs does not work when
 //   mounted on top of shiftfs, so shiftfs can't be mounted on `/var/lib/docker`.
 //
-// See sysboxd github issue #46 (https://github.com/nestybox/sysboxd/issues/46) for
+// See sysbox github issue #46 (https://github.com/nestybox/sysbox/issues/46) for
 // further details.
 
 package dsVolMgr

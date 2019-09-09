@@ -1,7 +1,7 @@
 # sysbox-mgr
 
-The Sysboxd Manager (aka sysbox-mgr) is a daemon that
-provides miscellaneous services to other sysboxd components.
+The Sysbox Manager (aka sysbox-mgr) is a daemon that
+provides miscellaneous services to other sysbox components.
 
 Currently it provides these services:
 
@@ -18,12 +18,12 @@ as well as sysbox-fs.
 
 # Build & Usage
 
-sysbox-mgr is built with the sysboxd Makefile. Refer to that sysboxd
+sysbox-mgr is built with the sysbox Makefile. Refer to that sysbox
 [README](../README.md) file for details.
 
 # gRPC
 
-sysbox-mgr listens on a unix-domain socket for gRPC from other sysboxd
+sysbox-mgr listens on a unix-domain socket for gRPC from other sysbox
 components.
 
 Currently a single gRPC is used (between sysbox-runc and sysbox-mgr).
