@@ -190,7 +190,7 @@ func setupSubidAlloc(ctx *cli.Context) (intf.SubidAlloc, error) {
 
 	subidAlloc, err := subidAlloc.New("sysbox", reusePol, subuidSrc, subgidSrc)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create the subid allocator: %v", err)
+		return nil, err
 	}
 
 	return subidAlloc, nil
@@ -203,7 +203,7 @@ func setupDsVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
 	}
 	ds, err := dsVolMgr.New(hostDir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to setup docker volume manager: %v", err)
+		return nil, err
 	}
 	return ds, nil
 }

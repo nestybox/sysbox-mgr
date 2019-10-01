@@ -133,7 +133,7 @@ func New(userName string, reuse ReusePolicy, subuidSrc, subgidSrc io.Reader) (in
 		}
 	}
 
-	// for each subgid range that is large enough, create a buddy allocator
+	// same as above but for gids
 	for i, subgid := range subgids {
 		if subgid.Count >= int64(allocBlkSize) {
 			sub.gidAllocs[i], err = buddyAlloc.New(allocBlkSize, uint64(subgid.Count), toBuddyPolicy(reuse))

@@ -8,7 +8,10 @@
 
 package intf
 
-import specs "github.com/opencontainers/runtime-spec/specs-go"
+import (
+	"github.com/opencontainers/runc/libcontainer/configs"
+	specs "github.com/opencontainers/runtime-spec/specs-go"
+)
 
 // The SubidAlloc interface defines the interface exposed by the entity that
 // performs or subuid and subgid allocations
@@ -38,4 +41,14 @@ type VolMgr interface {
 
 	// Destroys a volume for the container with the given 'id'.
 	DestroyVol(id string) error
+}
+
+// The ShiftfsMgr interface defines the interface exposed by the sysbox-mgr shiftfs manager
+type ShiftfsMgr interface {
+
+	// Add shiftfs marks on the given mountpoints
+	Mark(id string, mounts []configs.ShiftfsMount) error
+
+	// Remove shiftfs marks associated with the given container
+	Unmark(id string, mount []configs.ShiftfsMount) error
 }
