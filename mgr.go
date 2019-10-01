@@ -12,6 +12,8 @@ import (
 	grpc "github.com/nestybox/sysbox-ipc/sysboxMgrGrpc"
 	pb "github.com/nestybox/sysbox-ipc/sysboxMgrGrpc/protobuf"
 	intf "github.com/nestybox/sysbox-mgr/intf"
+	"github.com/nestybox/sysbox-mgr/shiftfsMgr"
+	"github.com/opencontainers/runc/libcontainer/configs"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
@@ -36,16 +38,18 @@ type uidInfo struct {
 }
 
 type containerInfo struct {
-	state     containerState
-	rootfs    string
-	supMounts []specs.Mount
-	uidInfo   uidInfo
+	state        containerState
+	rootfs       string
+	supMounts    []specs.Mount
+	uidInfo      uidInfo
+	shiftfsMarks []configs.ShiftfsMount
 }
 
 type SysboxMgr struct {
 	grpcServer    *grpc.ServerStub
 	subidAlloc    intf.SubidAlloc
 	dsVolMgr      intf.VolMgr
+	shiftfsMgr    intf.ShiftfsMgr
 	contTable     map[string]containerInfo // cont id -> cont info
 	ctLock        sync.Mutex
 	rootfsTable   map[string]string // cont rootfs -> cont id; used by rootfs monitor
@@ -68,22 +72,29 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 
 	dsVolMgr, err := setupDsVolMgr(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to setup docker-store vol mgr: %v", err)
+	}
+
+	shiftfsMgr, err := shiftfsMgr.New()
+	if err != nil {
+		return nil, fmt.Errorf("failed to setup shiftfs mgr: %v", err)
 	}
 
 	mgr := &SysboxMgr{
 		subidAlloc:    subidAlloc,
 		dsVolMgr:      dsVolMgr,
+		shiftfsMgr:    shiftfsMgr,
 		contTable:     make(map[string]containerInfo),
 		rootfsTable:   make(map[string]string),
 		rootfsMonStop: make(chan int),
 	}
 
 	cb := &grpc.ServerCallbacks{
-		Register:     mgr.register,
-		Unregister:   mgr.unregister,
-		SubidAlloc:   mgr.allocSubid,
-		ReqSupMounts: mgr.reqSupMounts,
+		Register:       mgr.register,
+		Unregister:     mgr.unregister,
+		SubidAlloc:     mgr.allocSubid,
+		ReqSupMounts:   mgr.reqSupMounts,
+		ReqShiftfsMark: mgr.reqShiftfsMark,
 	}
 
 	mgr.grpcServer = grpc.NewServerStub(cb)
@@ -174,10 +185,20 @@ func (mgr *SysboxMgr) unregister(id string) error {
 		return fmt.Errorf("redundant container unregistration for container %s", id)
 	}
 	info.state = stopped
+
+	// Request shiftfs manager to remove shiftfs mounts
+	if len(info.shiftfsMarks) != 0 {
+		if err := mgr.shiftfsMgr.Unmark(id, info.shiftfsMarks); err != nil {
+			logrus.Errorf("failed to remove shiftfs marks for container %s: %s", id, err)
+		}
+		info.shiftfsMarks = []configs.ShiftfsMount{}
+	}
+
 	mgr.contTable[id] = info
 	mgr.ctLock.Unlock()
 
-	// setup rootfs watch
+	// setup rootfs watch (allows us to get notified when the container's rootfs is
+	// removed)
 	if info.rootfs != "" {
 		rootfs := sanitizeRootfs(info.rootfs)
 		mgr.rtLock.Lock()
@@ -258,7 +279,7 @@ func (mgr *SysboxMgr) removeCont(id string) {
 
 func (mgr *SysboxMgr) reqSupMounts(id string, rootfs string, uid, gid uint32, shiftUids bool) ([]*pb.Mount, error) {
 
-	// update container info
+	// get container info
 	mgr.ctLock.Lock()
 	info, found := mgr.contTable[id]
 	if !found {
@@ -285,6 +306,7 @@ func (mgr *SysboxMgr) reqSupMounts(id string, rootfs string, uid, gid uint32, sh
 		mgr.ctLock.Unlock()
 	}
 
+	// TODO: this conversion should be moved to the GRPC server side ...
 	// convert []spec.Mount to []*pb.Mount
 	protoMounts := []*pb.Mount{}
 	for _, sm := range info.supMounts {
@@ -302,6 +324,7 @@ func (mgr *SysboxMgr) reqSupMounts(id string, rootfs string, uid, gid uint32, sh
 
 func (mgr *SysboxMgr) allocSubid(id string, size uint64) (uint32, uint32, error) {
 
+	// get container info
 	mgr.ctLock.Lock()
 	info, found := mgr.contTable[id]
 	if !found {
@@ -328,4 +351,38 @@ func (mgr *SysboxMgr) allocSubid(id string, size uint64) (uint32, uint32, error)
 	}
 
 	return info.uidInfo.uid, info.uidInfo.gid, nil
+}
+
+func (mgr *SysboxMgr) reqShiftfsMark(id string, rootfs string, mounts []configs.ShiftfsMount) error {
+
+	// get container info
+	mgr.ctLock.Lock()
+	info, found := mgr.contTable[id]
+	if !found {
+		mgr.ctLock.Unlock()
+		return fmt.Errorf("container %s is not registered", id)
+	}
+	mgr.ctLock.Unlock()
+
+	if len(info.shiftfsMarks) == 0 {
+		info.shiftfsMarks = []configs.ShiftfsMount{}
+
+		rootfsMnt := configs.ShiftfsMount{
+			Source:   rootfs,
+			Readonly: false,
+		}
+		allMounts := append(mounts, rootfsMnt)
+
+		if err := mgr.shiftfsMgr.Mark(id, allMounts); err != nil {
+			return err
+		}
+
+		info.shiftfsMarks = allMounts
+
+		mgr.ctLock.Lock()
+		mgr.contTable[id] = info
+		mgr.ctLock.Unlock()
+	}
+
+	return nil
 }
