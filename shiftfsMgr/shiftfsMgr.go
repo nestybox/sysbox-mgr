@@ -13,6 +13,7 @@ package shiftfsMgr
 
 import (
 	"fmt"
+	"os/exec"
 	"sync"
 
 	intf "github.com/nestybox/sysbox-mgr/intf"
@@ -31,6 +32,10 @@ type mgr struct {
 
 // Creates a new instance of the shiftfs manager
 func New() (intf.ShiftfsMgr, error) {
+
+	// Load the shiftfs module (if present in the kernel)
+	exec.Command("modprobe", "shiftfs").Run()
+
 	return &mgr{
 		mpMap: make(map[string][]string),
 	}, nil
