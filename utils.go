@@ -149,6 +149,18 @@ func getSubidLimits(file string) ([]uint64, error) {
 func setupSubidAlloc(ctx *cli.Context) (intf.SubidAlloc, error) {
 	var reusePol subidAlloc.ReusePolicy
 
+	if ctx.GlobalBool("subid-ident-map") {
+		subuidSrc := strings.NewReader("sysbox:0:65536")
+		subgidSrc := strings.NewReader("sysbox:0:65536")
+		subidAlloc, err := subidAlloc.New("sysbox", subidAlloc.Reuse, subuidSrc, subgidSrc)
+		if err != nil {
+			return nil, err
+		}
+
+		logrus.Infof("configured sys container subid allocator in identity-map mode.")
+		return subidAlloc, nil
+	}
+
 	// get subid min/max limits from login.defs (if any)
 	limits, err := getSubidLimits("/etc/login.defs")
 	if err != nil {
@@ -161,10 +173,10 @@ func setupSubidAlloc(ctx *cli.Context) (intf.SubidAlloc, error) {
 	subGidMax := limits[3]
 
 	// configure the subuid(gid) range for "sysbox"
-	if err := configSubidRange("/etc/subuid", subidRange, subUidMin, subUidMax); err != nil {
+	if err := configSubidRange("/etc/subuid", subidRangeSize, subUidMin, subUidMax); err != nil {
 		return nil, err
 	}
-	if err := configSubidRange("/etc/subgid", subidRange, subGidMin, subGidMax); err != nil {
+	if err := configSubidRange("/etc/subgid", subidRangeSize, subGidMin, subGidMax); err != nil {
 		return nil, err
 	}
 
@@ -197,6 +209,13 @@ func setupSubidAlloc(ctx *cli.Context) (intf.SubidAlloc, error) {
 }
 
 func setupDsVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
+
+	// When using identity map there is no need for the docker store volume manager
+	// because the system container won't be using uid-shifting.
+	if ctx.GlobalBool("userns-ident-map") {
+		return nil, nil
+	}
+
 	hostDir := filepath.Join(sysboxLibDir, "docker")
 	if err := os.MkdirAll(hostDir, 0700); err != nil {
 		return nil, fmt.Errorf("failed to create %v: %v", hostDir, err)

@@ -13,13 +13,13 @@ import (
 	"github.com/urfave/cli"
 )
 
-// subid range required by sysbox (4k sys containers, each with 64k uid(gids))
-var subidRange uint64 = 268435456
+// Default subid range required by sysbox (allows 4k sys containers, each with 64k uid(gids))
+var subidRangeSize uint64 = 268435456
 
 const (
 	usage = `sysbox manager
 
-sysbox-mgr is the sysbox manager daemon. It's main job is to provides services to other
+sysbox-mgr is the Sysbox manager daemon. It's main job is to provide services to other
 sysbox components (e.g., sysbox-runc).`
 )
 
@@ -45,7 +45,7 @@ func main() {
 
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
-			Name:  "log",
+			Name:  "log, l",
 			Value: "/dev/stdout",
 			Usage: "log file path",
 		},
@@ -55,14 +55,18 @@ func main() {
 			Usage: "log categories to include (debug, info, warning, error, fatal)",
 		},
 		cli.StringFlag{
-			Name:  "subid-policy",
+			Name:  "subid-policy, p",
 			Value: "reuse",
-			Usage: "subid exhaust policy ('reuse' or 'no-reuse')",
+			Usage: "subid allocator exhaust policy ('reuse' or 'no-reuse')",
 		},
 		cli.Uint64Flag{
-			Name:  "subid-range",
-			Value: subidRange,
-			Usage: "subid range size (must be a multiple of 64k (each sys container uses 64K uids & gids); must not exceed 4GB)",
+			Name:  "subid-range-size, r",
+			Value: subidRangeSize,
+			Usage: "subid allocator range (must be a multiple of 64K and <= 4GB)",
+		},
+		cli.BoolFlag{
+			Name:  "subid-ident-map, i",
+			Usage: "subid allocator identity map (maps uid 0->65536 in the system container to 0->65536 on the host); reduces isolation; overrides the -r and -p options.",
 		},
 	}
 
@@ -77,9 +81,6 @@ func main() {
 	}
 
 	app.Before = func(ctx *cli.Context) error {
-		if ctx.GlobalBool("debug") {
-			logrus.SetLevel(logrus.DebugLevel)
-		}
 		if path := ctx.GlobalString("log"); path != "" {
 			f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND|os.O_SYNC, 0666)
 			if err != nil {
@@ -116,12 +117,16 @@ func main() {
 			logrus.SetLevel(logrus.InfoLevel)
 		}
 
-		subidRange = ctx.GlobalUint64("subid-range")
-		if subidRange < (1 << 16) {
-			return fmt.Errorf("invalid subid-range %d; must be >= 64K", subidRange)
+		if ctx.GlobalUint64("subid-range-size") != 0 {
+			subidRangeSize = ctx.GlobalUint64("subid-range-size")
 		}
-		if subidRange > (1 << 32) {
-			return fmt.Errorf("invalid subid-range %d; must be <= 4G", subidRange)
+
+		if subidRangeSize%(1<<16) != 0 {
+			return fmt.Errorf("invalid subid-range-size %d; must be a multiple of 64K", subidRangeSize)
+		}
+
+		if subidRangeSize > (1 << 32) {
+			return fmt.Errorf("invalid subid-range-size %d; must be <= 4G", subidRangeSize)
 		}
 
 		return nil

@@ -259,8 +259,10 @@ func (mgr *SysboxMgr) removeCont(id string) {
 	mgr.ctLock.Unlock()
 
 	if len(info.supMounts) != 0 {
-		if err := mgr.dsVolMgr.DestroyVol(id); err != nil {
-			logrus.Errorf("rootfsMon: failed to destroy docker-store-volume for container %s: %s", id, err)
+		if mgr.dsVolMgr != nil {
+			if err := mgr.dsVolMgr.DestroyVol(id); err != nil {
+				logrus.Errorf("rootfsMon: failed to destroy docker-store-volume for container %s: %s", id, err)
+			}
 		}
 	}
 
@@ -295,11 +297,13 @@ func (mgr *SysboxMgr) reqSupMounts(id string, rootfs string, uid, gid uint32, sh
 		info.supMounts = []specs.Mount{}
 
 		// docker-store-volume mount
-		m, err := mgr.dsVolMgr.CreateVol(id, rootfs, "/var/lib/docker", uid, gid, shiftUids)
-		if err != nil {
-			return []*pb.Mount{}, err
+		if mgr.dsVolMgr != nil {
+			m, err := mgr.dsVolMgr.CreateVol(id, rootfs, "/var/lib/docker", uid, gid, shiftUids)
+			if err != nil {
+				return []*pb.Mount{}, err
+			}
+			info.supMounts = append(info.supMounts, m...)
 		}
-		info.supMounts = append(info.supMounts, m...)
 
 		mgr.ctLock.Lock()
 		mgr.contTable[id] = info
