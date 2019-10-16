@@ -138,9 +138,9 @@ func testCreateVolWork(id, hostDir, rootfs, mountpoint string, uid, gid uint32, 
 		},
 	}
 
-	ds, err := New(hostDir)
+	ds, err := New(hostDir, false)
 	if err != nil {
-		return got, fmt.Errorf("New(%v) returned %v", hostDir, err)
+		return got, fmt.Errorf("New(%v, false) returned %v", hostDir, err)
 	}
 
 	got, err = ds.CreateVol(id, rootfs, mountpoint, uid, gid, shiftUids)
@@ -181,9 +181,9 @@ func TestDestroyVol(t *testing.T) {
 	}
 	defer cleanupTest(hostDir, rootfs)
 
-	ds, err := New(hostDir)
+	ds, err := New(hostDir, false)
 	if err != nil {
-		t.Errorf("New(%v) returned %v", hostDir, err)
+		t.Errorf("New(%v, false) returned %v", hostDir, err)
 	}
 
 	id := "test-cont"
