@@ -157,7 +157,7 @@ func setupSubidAlloc(ctx *cli.Context) (intf.SubidAlloc, error) {
 			return nil, err
 		}
 
-		logrus.Infof("configured sys container subid allocator in identity-map mode.")
+		logrus.Infof("Subid allocator using identity-map mode.")
 		return subidAlloc, nil
 	}
 
@@ -179,6 +179,8 @@ func setupSubidAlloc(ctx *cli.Context) (intf.SubidAlloc, error) {
 	if err := configSubidRange("/etc/subgid", subidRangeSize, subGidMin, subGidMax); err != nil {
 		return nil, err
 	}
+
+	logrus.Infof("Subid allocation range: %v -> %v", subUidMin, subUidMax)
 
 	if ctx.GlobalString("subid-policy") == "no-reuse" {
 		reusePol = subidAlloc.NoReuse
@@ -209,18 +211,11 @@ func setupSubidAlloc(ctx *cli.Context) (intf.SubidAlloc, error) {
 }
 
 func setupDsVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
-
-	// When using identity map there is no need for the docker store volume manager
-	// because the system container won't be using uid-shifting.
-	if ctx.GlobalBool("userns-ident-map") {
-		return nil, nil
-	}
-
 	hostDir := filepath.Join(sysboxLibDir, "docker")
 	if err := os.MkdirAll(hostDir, 0700); err != nil {
 		return nil, fmt.Errorf("failed to create %v: %v", hostDir, err)
 	}
-	ds, err := dsVolMgr.New(hostDir)
+	ds, err := dsVolMgr.New(hostDir, ctx.GlobalBool("disable-docker-mount"))
 	if err != nil {
 		return nil, err
 	}
