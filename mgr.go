@@ -134,6 +134,7 @@ func (mgr *SysboxMgr) Cleanup() error {
 
 // Registers a container with sysbox-mgr
 func (mgr *SysboxMgr) register(id string) error {
+
 	mgr.ctLock.Lock()
 	info, found := mgr.contTable[id]
 	if !found {
@@ -176,12 +177,12 @@ func (mgr *SysboxMgr) unregister(id string) error {
 	// update container state
 	mgr.ctLock.Lock()
 	info, found := mgr.contTable[id]
+	mgr.ctLock.Unlock()
+
 	if !found {
-		mgr.ctLock.Unlock()
 		return fmt.Errorf("can't unregister container %s; not found in container table", id)
 	}
 	if info.state != started {
-		mgr.ctLock.Unlock()
 		return fmt.Errorf("redundant container unregistration for container %s", id)
 	}
 	info.state = stopped
@@ -189,11 +190,19 @@ func (mgr *SysboxMgr) unregister(id string) error {
 	// Request shiftfs manager to remove shiftfs mounts
 	if len(info.shiftfsMarks) != 0 {
 		if err := mgr.shiftfsMgr.Unmark(id, info.shiftfsMarks); err != nil {
-			logrus.Errorf("failed to remove shiftfs marks for container %s: %s", id, err)
+			return fmt.Errorf("failed to remove shiftfs marks for container %s: %s", id, err)
 		}
 		info.shiftfsMarks = []configs.ShiftfsMount{}
 	}
 
+	// Request docker-store volume manager to sync back contents to the container's rootfs
+	if mgr.dsVolMgr != nil {
+		if err := mgr.dsVolMgr.SyncOut(id); err != nil {
+			return fmt.Errorf("docker-store vol sync-out failed: %v", err)
+		}
+	}
+
+	mgr.ctLock.Lock()
 	mgr.contTable[id] = info
 	mgr.ctLock.Unlock()
 
@@ -251,12 +260,12 @@ func (mgr *SysboxMgr) removeCont(id string) {
 
 	mgr.ctLock.Lock()
 	info, found := mgr.contTable[id]
+	mgr.ctLock.Unlock()
+
 	if !found {
-		mgr.ctLock.Unlock()
 		logrus.Errorf("can't remove container %s; info not found in table", id)
 		return
 	}
-	mgr.ctLock.Unlock()
 
 	if len(info.supMounts) != 0 {
 		if mgr.dsVolMgr != nil {
@@ -284,11 +293,11 @@ func (mgr *SysboxMgr) reqSupMounts(id string, rootfs string, uid, gid uint32, sh
 	// get container info
 	mgr.ctLock.Lock()
 	info, found := mgr.contTable[id]
+	mgr.ctLock.Unlock()
+
 	if !found {
-		mgr.ctLock.Unlock()
 		return []*pb.Mount{}, fmt.Errorf("container %s is not registered", id)
 	}
-	mgr.ctLock.Unlock()
 
 	// if this is a newly started container, setup its supplementary mounts
 	// (started or stopped containers keep their supp mounts until removed)
@@ -331,11 +340,11 @@ func (mgr *SysboxMgr) allocSubid(id string, size uint64) (uint32, uint32, error)
 	// get container info
 	mgr.ctLock.Lock()
 	info, found := mgr.contTable[id]
+	mgr.ctLock.Unlock()
+
 	if !found {
-		mgr.ctLock.Unlock()
 		return 0, 0, fmt.Errorf("container %s is not registered", id)
 	}
-	mgr.ctLock.Unlock()
 
 	// if this is a newly started container, allocate the uid/gid range
 	// (started or stopped containers keep their uid/gid range until removed)
@@ -362,11 +371,11 @@ func (mgr *SysboxMgr) reqShiftfsMark(id string, rootfs string, mounts []configs.
 	// get container info
 	mgr.ctLock.Lock()
 	info, found := mgr.contTable[id]
+	mgr.ctLock.Unlock()
+
 	if !found {
-		mgr.ctLock.Unlock()
 		return fmt.Errorf("container %s is not registered", id)
 	}
-	mgr.ctLock.Unlock()
 
 	if len(info.shiftfsMarks) == 0 {
 		info.shiftfsMarks = []configs.ShiftfsMount{}
