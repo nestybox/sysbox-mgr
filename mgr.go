@@ -196,7 +196,14 @@ func (mgr *SysboxMgr) unregister(id string) error {
 		info.shiftfsMarks = []configs.ShiftfsMount{}
 	}
 
-	// Request docker-store volume manager to sync back contents to the container's rootfs
+	// Request docker-store volume manager to sync back contents to the container's rootfs.
+	//
+	// Note that we do this when the container is stopped, not when it's running. This
+	// means we take the performance hit on container stop. The performance hit is a
+	// function of how many changes the sys container did on its /var/lib/docker
+	// directory. If in the future we think the hit is too much, we could do the sync
+	// periodically while the container is running (e.g., using a combination of fsnotify +
+	// rsync).
 	if err := mgr.dsVolMgr.SyncOut(id); err != nil {
 		return fmt.Errorf("docker-store vol sync-out failed: %v", err)
 	}

@@ -225,6 +225,13 @@ func (dsm *mgr) rsyncVol(src, dest string, uid, gid uint32, shiftUids bool) erro
 
 	srcDir := src + "/"
 
+	// Note: rsync uses file modification time and size to determine if a sync is
+	// needed. This should be fine for sync'ing the sys container's /var/lib/docker given
+	// the way it's used internally by Docker (where the probability of files being
+	// different yet having the same size & timestamp is low). If this assumption changes
+	// we could pass the `--checksum` option to rsync, but this will slow the copy
+	// operation significantly.
+
 	if shiftUids {
 		chown := "--chown=" + strconv.FormatUint(uint64(uid), 10) + ":" + strconv.FormatUint(uint64(gid), 10)
 		cmd = exec.Command("rsync", "-ravuq", "--delete", chown, srcDir, dest)
@@ -237,10 +244,10 @@ func (dsm *mgr) rsyncVol(src, dest string, uid, gid uint32, shiftUids bool) erro
 
 	err := cmd.Run()
 	if err != nil {
-		return fmt.Errorf("failed to rsync %s to %s: %v %v\n", srcDir, dest, string(stdout.Bytes()), string(stderr.Bytes()))
+		return fmt.Errorf("failed to sync %s to %s: %v %v\n", srcDir, dest, string(stdout.Bytes()), string(stderr.Bytes()))
 	}
 
-	logrus.Debugf("rsync'd %s to %s", srcDir, dest)
+	logrus.Debugf("sync'd %s to %s", srcDir, dest)
 	return nil
 }
 
