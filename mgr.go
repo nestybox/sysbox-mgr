@@ -95,6 +95,7 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		SubidAlloc:     mgr.allocSubid,
 		ReqSupMounts:   mgr.reqSupMounts,
 		ReqShiftfsMark: mgr.reqShiftfsMark,
+		Pause:          mgr.pause,
 	}
 
 	mgr.grpcServer = grpc.NewServerStub(cb)
@@ -395,6 +396,26 @@ func (mgr *SysboxMgr) reqShiftfsMark(id string, rootfs string, mounts []configs.
 		mgr.ctLock.Lock()
 		mgr.contTable[id] = info
 		mgr.ctLock.Unlock()
+	}
+
+	return nil
+}
+
+func (mgr *SysboxMgr) pause(id string) error {
+
+	mgr.ctLock.Lock()
+	_, found := mgr.contTable[id]
+	mgr.ctLock.Unlock()
+
+	if !found {
+		return fmt.Errorf("can't pause container %s; not found in container table", id)
+	}
+
+	// Request docker-store volume manager to sync back contents to the container's rootfs
+	if mgr.dsVolMgr != nil {
+		if err := mgr.dsVolMgr.SyncOut(id); err != nil {
+			return fmt.Errorf("docker-store vol sync-out failed: %v", err)
+		}
 	}
 
 	return nil
