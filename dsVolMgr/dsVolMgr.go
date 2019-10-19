@@ -58,15 +58,14 @@ type volInfo struct {
 }
 
 type mgr struct {
-	hostDir            string
-	disableDockerMount bool
-	volTable           map[string]volInfo // cont id -> volume info
-	mu                 sync.Mutex
+	hostDir  string
+	volTable map[string]volInfo // cont id -> volume info
+	mu       sync.Mutex
 }
 
 // Creates a new instance of the docker-store volume manager.
 // 'hostDir' is the directory on the host which the manager will use for its operations
-func New(hostDir string, disableDockerMount bool) (intf.VolMgr, error) {
+func New(hostDir string) (intf.VolMgr, error) {
 	if checkUnsupportedFs {
 		var statfs syscall.Statfs_t
 		if err := syscall.Statfs(hostDir, &statfs); err != nil {
@@ -78,26 +77,15 @@ func New(hostDir string, disableDockerMount bool) (intf.VolMgr, error) {
 			}
 		}
 	}
-	if disableDockerMount {
-		logrus.Infof("Auto-mounts over /var/lib/docker disabled (except when using uid-shifting); backing dir = %v", hostDir)
-	} else {
-		logrus.Infof("Auto-mounts over /var/lib/docker enabled; backing dir = %v", hostDir)
-	}
 	return &mgr{
-		hostDir:            hostDir,
-		disableDockerMount: disableDockerMount,
-		volTable:           make(map[string]volInfo),
+		hostDir:  hostDir,
+		volTable: make(map[string]volInfo),
 	}, nil
 }
 
 // Implements intf.VolMgr.CreateVol
 func (dsm *mgr) CreateVol(id, rootfs, mountpoint string, uid, gid uint32, shiftUids bool) ([]specs.Mount, error) {
 	var err error
-
-	// Docker mount disabling is only allowed when uid shifting is off (sysbox issue #93).
-	if dsm.disableDockerMount && !shiftUids {
-		return []specs.Mount{}, nil
-	}
 
 	volPath := filepath.Join(dsm.hostDir, id)
 	mountPath := filepath.Join(rootfs, mountpoint)

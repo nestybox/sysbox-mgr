@@ -144,9 +144,9 @@ func testCreateVolWork(id, hostDir, rootfs, mountpoint string, uid, gid uint32, 
 		},
 	}
 
-	dsm, err := New(hostDir, false)
+	dsm, err := New(hostDir)
 	if err != nil {
-		return got, fmt.Errorf("New(%v, false) returned %v", hostDir, err)
+		return got, fmt.Errorf("New(%v) returned %v", hostDir, err)
 	}
 
 	got, err = dsm.CreateVol(id, rootfs, mountpoint, uid, gid, shiftUids)
@@ -194,9 +194,9 @@ func TestDestroyVol(t *testing.T) {
 	}
 	defer cleanupTest(hostDir, rootfs)
 
-	dsm, err := New(hostDir, false)
+	dsm, err := New(hostDir)
 	if err != nil {
-		t.Errorf("New(%v, false) returned %v", hostDir, err)
+		t.Errorf("New(%v) returned %v", hostDir, err)
 	}
 
 	id := "test-cont"
@@ -274,9 +274,9 @@ func testSyncInWork(t *testing.T, shiftUids bool) {
 	}
 
 	// create the docker-store volume; this triggers the sync-in automatically.
-	dsm, err := New(hostDir, false)
+	dsm, err := New(hostDir)
 	if err != nil {
-		t.Errorf("New(%v, false) returned %v", hostDir, err)
+		t.Errorf("New(%v) returned %v", hostDir, err)
 	}
 
 	_, err = dsm.CreateVol(id, rootfs, mountpoint, uid, gid, shiftUids)
@@ -342,9 +342,9 @@ func testSyncOutWork(t *testing.T, shiftUids bool) {
 	defer cleanupTest(hostDir, rootfs)
 
 	// create the docker-store volume
-	dsm, err := New(hostDir, false)
+	dsm, err := New(hostDir)
 	if err != nil {
-		t.Errorf("New(%v, false) returned %v", hostDir, err)
+		t.Errorf("New(%v) returned %v", hostDir, err)
 	}
 
 	id := "test-cont"
@@ -433,9 +433,9 @@ func TestSyncInSkip(t *testing.T) {
 	defer cleanupTest(hostDir, rootfs)
 
 	// create the docker-store volume
-	dsm, err := New(hostDir, false)
+	dsm, err := New(hostDir)
 	if err != nil {
-		t.Errorf("New(%v, false) returned %v", hostDir, err)
+		t.Errorf("New(%v) returned %v", hostDir, err)
 	}
 
 	id := "test-cont"
@@ -469,9 +469,9 @@ func TestSyncOutSkip(t *testing.T) {
 	defer cleanupTest(hostDir, rootfs)
 
 	// create the docker-store volume
-	dsm, err := New(hostDir, false)
+	dsm, err := New(hostDir)
 	if err != nil {
-		t.Errorf("New(%v, false) returned %v", hostDir, err)
+		t.Errorf("New(%v) returned %v", hostDir, err)
 	}
 
 	id := "test-cont"
