@@ -215,7 +215,7 @@ func setupDsVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
 	if err := os.MkdirAll(hostDir, 0700); err != nil {
 		return nil, fmt.Errorf("failed to create %v: %v", hostDir, err)
 	}
-	ds, err := dsVolMgr.New(hostDir, ctx.GlobalBool("disable-docker-mount"))
+	ds, err := dsVolMgr.New(hostDir)
 	if err != nil {
 		return nil, err
 	}

@@ -197,10 +197,8 @@ func (mgr *SysboxMgr) unregister(id string) error {
 	}
 
 	// Request docker-store volume manager to sync back contents to the container's rootfs
-	if mgr.dsVolMgr != nil {
-		if err := mgr.dsVolMgr.SyncOut(id); err != nil {
-			return fmt.Errorf("docker-store vol sync-out failed: %v", err)
-		}
+	if err := mgr.dsVolMgr.SyncOut(id); err != nil {
+		return fmt.Errorf("docker-store vol sync-out failed: %v", err)
 	}
 
 	mgr.ctLock.Lock()
@@ -269,10 +267,8 @@ func (mgr *SysboxMgr) removeCont(id string) {
 	}
 
 	if len(info.supMounts) != 0 {
-		if mgr.dsVolMgr != nil {
-			if err := mgr.dsVolMgr.DestroyVol(id); err != nil {
-				logrus.Errorf("rootfsMon: failed to destroy docker-store-volume for container %s: %s", id, err)
-			}
+		if err := mgr.dsVolMgr.DestroyVol(id); err != nil {
+			logrus.Errorf("rootfsMon: failed to destroy docker-store-volume for container %s: %s", id, err)
 		}
 	}
 
@@ -307,13 +303,11 @@ func (mgr *SysboxMgr) reqSupMounts(id string, rootfs string, uid, gid uint32, sh
 		info.supMounts = []specs.Mount{}
 
 		// docker-store-volume mount
-		if mgr.dsVolMgr != nil {
-			m, err := mgr.dsVolMgr.CreateVol(id, rootfs, "/var/lib/docker", uid, gid, shiftUids)
-			if err != nil {
-				return []*pb.Mount{}, err
-			}
-			info.supMounts = append(info.supMounts, m...)
+		m, err := mgr.dsVolMgr.CreateVol(id, rootfs, "/var/lib/docker", uid, gid, shiftUids)
+		if err != nil {
+			return []*pb.Mount{}, err
 		}
+		info.supMounts = append(info.supMounts, m...)
 
 		mgr.ctLock.Lock()
 		mgr.contTable[id] = info
@@ -412,10 +406,8 @@ func (mgr *SysboxMgr) pause(id string) error {
 	}
 
 	// Request docker-store volume manager to sync back contents to the container's rootfs
-	if mgr.dsVolMgr != nil {
-		if err := mgr.dsVolMgr.SyncOut(id); err != nil {
-			return fmt.Errorf("docker-store vol sync-out failed: %v", err)
-		}
+	if err := mgr.dsVolMgr.SyncOut(id); err != nil {
+		return fmt.Errorf("docker-store vol sync-out failed: %v", err)
 	}
 
 	return nil

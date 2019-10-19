@@ -68,10 +68,6 @@ func main() {
 			Name:  "subid-ident-map, i",
 			Usage: "subid allocator identity map (maps uid 0->65536 in the system container to 0->65536 on the host); reduces isolation; overrides the -r and -p options.",
 		},
-		cli.BoolFlag{
-			Name:  "disable-docker-mount",
-			Usage: "disables auto mounting of a sysbox managed host directory over the system container's /var/lib/docker; may result in Docker inside a system container using vfs storage driver, reducing its performance.",
-		},
 	}
 
 	// show-version specialization.
