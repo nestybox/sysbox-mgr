@@ -180,7 +180,7 @@ func setupSubidAlloc(ctx *cli.Context) (intf.SubidAlloc, error) {
 		return nil, err
 	}
 
-	logrus.Infof("Subid allocation range: %v -> %v", subUidMin, subUidMax)
+	logrus.Infof("Subid allocation range: start = %v, size = %v", subUidMin, subidRangeSize)
 
 	if ctx.GlobalString("subid-policy") == "no-reuse" {
 		reusePol = subidAlloc.NoReuse

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/nestybox/sysbox-mgr/intf"
+	"github.com/nestybox/sysbox-runc/libcontainer/user"
 )
 
 type allocTest struct {
@@ -258,8 +259,8 @@ func TestConcurrency(t *testing.T) {
 		return
 	}
 
-	// spawn multiple goroutines, each of which calls AllocUid and reports back the range &
-	// error they got
+	// spawn multiple goroutines, each of which calls AllocUid and reports back the range
+	// and error they got
 	numWorkers := 32
 	allocSize := uint64(65536)
 
@@ -368,8 +369,8 @@ func TestAllocMultiRange(t *testing.T) {
 	subuidCfg := strings.NewReader(`testUser:0:65536
                                    testUser:524288:65536`)
 
-	subgidCfg := strings.NewReader(`testUser:1048576:65536
-                                   testUser:1572864:65536`)
+	subgidCfg := strings.NewReader(`testUser:0:65536
+                                   testUser:524288:65536`)
 
 	subidAlloc, err := New("testUser", NoReuse, subuidCfg, subgidCfg)
 	if err != nil {
@@ -379,10 +380,68 @@ func TestAllocMultiRange(t *testing.T) {
 
 	var tests = []allocTest{
 		// id, size, wantUid, wantGid, wantErr
-		{"1", 65536, 0, 1048576, ""},
-		{"2", 65536, 524288, 1572864, ""},
+		{"1", 65536, 0, 0, ""},
+		{"2", 65536, 524288, 524288, ""},
 		{"3", 65536, 0, 0, "exhausted"},
 	}
 
 	testAlloc(t, subidAlloc, tests)
+}
+
+func TestGetCommonRanges(t *testing.T) {
+
+	uidRanges := []user.SubID{{"1", 0, 5}, {"2", 7, 3}, {"3", 10, 6}, {"4", 20, 1}}
+	gidRanges := []user.SubID{{"1", 1, 5}, {"2", 7, 3}, {"3", 10, 7}, {"4", 20, 1}}
+
+	want := []user.SubID{{"2", 7, 3}, {"4", 20, 1}}
+	got := getCommonRanges(uidRanges, gidRanges)
+
+	if len(want) != len(got) {
+		t.Errorf("getCommonRanges(%v, %v) failed; want %v; got %v", uidRanges, gidRanges, want, got)
+	}
+
+	for _, w := range want {
+		found := false
+		for _, g := range got {
+			if w == g {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("getCommonRanges(%v, %v) failed; want %v; got %v", uidRanges, gidRanges, want, got)
+		}
+	}
+}
+
+func TestAllocCommonRange(t *testing.T) {
+
+	subuidCfg := strings.NewReader(`testUser:0:65536
+                                   testUser:524288:65536`)
+
+	subgidCfg := strings.NewReader(`testUser:65536:65536
+		                             testUser:0:65536`)
+
+	subidAlloc, err := New("testUser", NoReuse, subuidCfg, subgidCfg)
+	if err != nil {
+		t.Errorf("failed to create allocator: %v", err)
+	}
+
+	var tests = []allocTest{
+		// id, size, wantUid, wantGid, wantErr
+		{"1", 65536, 0, 0, ""},
+		{"2", 65536, 0, 0, "exhausted"},
+	}
+
+	testAlloc(t, subidAlloc, tests)
+
+	subuidCfg = strings.NewReader(`testUser:0:65536
+                                   testUser:524288:65536`)
+
+	subgidCfg = strings.NewReader(`testUser:65536:65536
+		                             testUser:231072:65536`)
+
+	subidAlloc, err = New("testUser", NoReuse, subuidCfg, subgidCfg)
+	if err == nil {
+		t.Errorf("subidAlloc() passed; expected failure")
+	}
 }

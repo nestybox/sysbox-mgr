@@ -35,6 +35,7 @@ import (
 	"io"
 	"sync"
 
+	mapset "github.com/deckarep/golang-set"
 	intf "github.com/nestybox/sysbox-mgr/intf"
 	"github.com/nestybox/sysbox-mgr/lib/buddyAlloc"
 	"github.com/nestybox/sysbox-runc/libcontainer/user"
@@ -53,19 +54,12 @@ const (
 	NoReuse                    // do not re-use (allocation fails with error = "exhausted")
 )
 
-type allocInfo struct {
-	uid uint32
-	gid uint32
-}
-
 // subidAlloc class (implements the UidAllocator interface)
 type subidAlloc struct {
-	subuids   []user.SubID         // subuid range(s)
-	subgids   []user.SubID         // subgid range(s)
-	uidAllocs []*buddyAlloc.Buddy  // uid allocator(s) (one per contiguous subuid range)
-	gidAllocs []*buddyAlloc.Buddy  // gid allocator(s) (one per contiguous subuid range)
-	allocMap  map[string]allocInfo // table of container Ids and associated uid/gid allocs
-	mu        sync.Mutex           // protects allocMap
+	idRanges []user.SubID        // subuid range(s)
+	idAllocs []*buddyAlloc.Buddy // subid allocator(s) (one per contiguous subuid range)
+	allocMap map[string]uint32   // table of container Ids and associated uid/gid allocs
+	mu       sync.Mutex          // protects allocMap
 }
 
 func toBuddyPolicy(p ReusePolicy) buddyAlloc.ReusePolicy {
@@ -85,7 +79,7 @@ func toBuddyPolicy(p ReusePolicy) buddyAlloc.ReusePolicy {
 
 // New creates an subidAlloc object
 //
-// userName is the Linux user whose subid/gid ranges
+// userName is the Linux user whose subid/gid ranges will be used
 // reuse is the reuse policy for subid/gid
 // subuidSrc and subgidSrc contain the subid/gid ranges for the system
 func New(userName string, reuse ReusePolicy, subuidSrc, subgidSrc io.Reader) (intf.SubidAlloc, error) {
@@ -95,75 +89,88 @@ func New(userName string, reuse ReusePolicy, subuidSrc, subgidSrc io.Reader) (in
 	}
 
 	// read subuid range(s) for userName
-	subuids, err := user.ParseSubIDFilter(subuidSrc, filter)
+	uidRanges, err := user.ParseSubIDFilter(subuidSrc, filter)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(subuids) == 0 {
+	if len(uidRanges) == 0 {
 		return nil, fmt.Errorf("could not find subuid info for user %s", userName)
 	}
 
 	// read subgid range(s) for userName
-	subgids, err := user.ParseSubIDFilter(subgidSrc, filter)
+	gidRanges, err := user.ParseSubIDFilter(subgidSrc, filter)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(subgids) == 0 {
+	if len(gidRanges) == 0 {
 		return nil, fmt.Errorf("could not find subgid info for user %s", userName)
+	}
+
+	// we need at least one matching subuid and subgid range
+	ranges := getCommonRanges(uidRanges, gidRanges)
+	if len(ranges) == 0 {
+		return nil, fmt.Errorf("could not find matching subuid and subgids range for user %s", userName)
 	}
 
 	// create the allocator
 	sub := &subidAlloc{
-		subuids:   subuids,
-		subgids:   subgids,
-		uidAllocs: make([]*buddyAlloc.Buddy, len(subuids)),
-		gidAllocs: make([]*buddyAlloc.Buddy, len(subgids)),
-		allocMap:  make(map[string]allocInfo),
+		idRanges: ranges,
+		idAllocs: make([]*buddyAlloc.Buddy, len(ranges)),
+		allocMap: make(map[string]uint32),
 	}
 
-	// for each subuid range that is large enough, create a buddy allocator
-	for i, subuid := range subuids {
-		if subuid.Count >= int64(allocBlkSize) {
-			sub.uidAllocs[i], err = buddyAlloc.New(allocBlkSize, uint64(subuid.Count), toBuddyPolicy(reuse))
+	// for each subid range that is large enough, create a buddy allocator
+	for i, subid := range sub.idRanges {
+		if subid.Count >= int64(allocBlkSize) {
+			sub.idAllocs[i], err = buddyAlloc.New(allocBlkSize, uint64(subid.Count), toBuddyPolicy(reuse))
 			if err != nil {
 				return nil, fmt.Errorf("failed to create allocator object: %v", err)
 			}
 		}
 	}
 
-	// same as above but for gids
-	for i, subgid := range subgids {
-		if subgid.Count >= int64(allocBlkSize) {
-			sub.gidAllocs[i], err = buddyAlloc.New(allocBlkSize, uint64(subgid.Count), toBuddyPolicy(reuse))
-			if err != nil {
-				return nil, fmt.Errorf("failed to create allocator object: %v", err)
-			}
-		}
-	}
-
-	if len(sub.uidAllocs) == 0 {
+	if len(sub.idAllocs) == 0 {
 		return nil, fmt.Errorf("did not find a large enough subuid range for user %s (need %v)", userName, allocBlkSize)
-	}
-
-	if len(sub.gidAllocs) == 0 {
-		return nil, fmt.Errorf("did not find a large enough subgid range for user %s (need %v)", userName, allocBlkSize)
 	}
 
 	return sub, nil
 }
 
-func (sub *subidAlloc) allocUid(size uint64) (uint32, error) {
+func getCommonRanges(uidRanges, gidRanges []user.SubID) []user.SubID {
 
-	// search in all of the subuid ranges of the user
-	for i, uidAlloc := range sub.uidAllocs {
-		if uidAlloc != nil {
-			start, err := uidAlloc.Alloc(size)
+	uidRangeSet := mapset.NewSet()
+	for _, uidRange := range uidRanges {
+		uidRangeSet.Add(uidRange)
+	}
+
+	gidRangeSet := mapset.NewSet()
+	for _, gidRange := range gidRanges {
+		gidRangeSet.Add(gidRange)
+	}
+
+	commonSet := uidRangeSet.Intersect(gidRangeSet)
+
+	common := []user.SubID{}
+	for elem := range commonSet.Iter() {
+		subid := elem.(user.SubID)
+		common = append(common, subid)
+	}
+
+	return common
+}
+
+func (sub *subidAlloc) allocID(size uint64) (uint32, error) {
+
+	// search in all of the subid ranges of the user
+	for i, idAlloc := range sub.idAllocs {
+		if idAlloc != nil {
+			start, err := idAlloc.Alloc(size)
 			if err == nil {
-				// the allocator allocates from 0; we need to adjust this to the subuid	start
-				subuid := uint32(sub.subuids[i].SubID) + uint32(start)
-				return subuid, nil
+				// the allocator allocates from 0; we need to adjust this to the subid start
+				subid := uint32(sub.idRanges[i].SubID) + uint32(start)
+				return subid, nil
 			}
 			if err.Error() != "exhausted" {
 				return 0, err
@@ -174,48 +181,13 @@ func (sub *subidAlloc) allocUid(size uint64) (uint32, error) {
 	return 0, errors.New("exhausted")
 }
 
-func (sub *subidAlloc) allocGid(size uint64) (uint32, error) {
+func (sub *subidAlloc) freeID(subid uint32) error {
 
-	// search in all of the subgid ranges of the user
-	for i, gidAlloc := range sub.gidAllocs {
-		if gidAlloc != nil {
-			start, err := gidAlloc.Alloc(size)
-			if err == nil {
-				// the allocator allocates from 0; we need to adjust this to the subgid	start
-				subgid := uint32(sub.subgids[i].SubID) + uint32(start)
-				return subgid, nil
-			}
-			if err.Error() != "exhausted" {
-				return 0, err
-			}
-		}
-	}
-
-	return 0, errors.New("exhausted")
-}
-
-func (sub *subidAlloc) freeUid(uid uint32) error {
-
-	for i, uidAlloc := range sub.uidAllocs {
-		if uidAlloc != nil {
-			// the allocator allocates from 0; we need to adjust this to the subuid start
-			subuid := uid - uint32(sub.subuids[i].SubID)
-			err := uidAlloc.Free(uint64(subuid))
-			if err == nil {
-				return nil
-			}
-		}
-	}
-
-	return errors.New("not-found")
-}
-
-func (sub *subidAlloc) freeGid(gid uint32) error {
-
-	for i, gidAlloc := range sub.gidAllocs {
-		if gidAlloc != nil {
-			subgid := gid - uint32(sub.subgids[i].SubID)
-			err := gidAlloc.Free(uint64(subgid))
+	for i, idAlloc := range sub.idAllocs {
+		if idAlloc != nil {
+			// the allocator allocates from 0; we need to adjust this to the subid start
+			adjSubid := subid - uint32(sub.idRanges[i].SubID)
+			err := idAlloc.Free(uint64(adjSubid))
 			if err == nil {
 				return nil
 			}
@@ -235,42 +207,32 @@ func (sub *subidAlloc) Alloc(id string, size uint64) (uint32, uint32, error) {
 	}
 	sub.mu.Unlock()
 
-	uid, err := sub.allocUid(size)
-	if err != nil {
-		return 0, 0, err
-	}
-
-	gid, err := sub.allocGid(size)
+	subid, err := sub.allocID(size)
 	if err != nil {
 		return 0, 0, err
 	}
 
 	sub.mu.Lock()
-	sub.allocMap[id] = allocInfo{uid, gid}
+	sub.allocMap[id] = subid
 	sub.mu.Unlock()
 
-	logrus.Debugf("Alloc(%v, %v) = %v, %v", id, size, uid, gid)
+	logrus.Debugf("Alloc(%v, %v) = %v, %v", id, size, subid, subid)
 
-	return uid, gid, nil
+	return subid, subid, nil
 }
 
 // Implements intf.SubidAlloc.Free
 func (sub *subidAlloc) Free(id string) error {
 
 	sub.mu.Lock()
-	alloc, found := sub.allocMap[id]
+	subid, found := sub.allocMap[id]
 	if !found {
 		sub.mu.Unlock()
 		return fmt.Errorf("not-found")
 	}
 	sub.mu.Unlock()
 
-	err := sub.freeUid(alloc.uid)
-	if err != nil {
-		return err
-	}
-
-	err = sub.freeGid(alloc.gid)
+	err := sub.freeID(subid)
 	if err != nil {
 		return err
 	}
