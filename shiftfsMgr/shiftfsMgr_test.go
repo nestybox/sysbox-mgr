@@ -137,15 +137,15 @@ func TestShiftfsMgrErrors(t *testing.T) {
 	// Verify error cases are handled correctly
 	//
 
-	// Incorrect mounts
+	// Incorrect mounts (expected to be ignored by shiftfs mgr)
 	mounts := []configs.ShiftfsMount{
 		{
 			Source:   "/c/t/v",
 			Readonly: false,
 		},
 	}
-	if err := mgr.Unmark("testCont1", mounts); err == nil {
-		t.Errorf("expected unmark to fail but it passed")
+	if err := mgr.Unmark("testCont1", mounts); err != nil {
+		t.Errorf("expected unmark of unknown mount to be ignored but it failed")
 	}
 
 	// Incorrect container id
