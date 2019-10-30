@@ -86,8 +86,11 @@ func (sm *mgr) Unmark(id string, mount []configs.ShiftfsMount) error {
 
 	for _, m := range mount {
 		ids, found := sm.mpMap[m.Source]
+
+		// we may not find the mount source in the markpoint map if we skipped it in Mark()
+		// (e.g., because it was already mounted by some other entity)
 		if !found {
-			return fmt.Errorf("did not find shiftfs mount %s in mount-point map", m.Source)
+			continue
 		}
 
 		// Remove matching container-id from mpMap entry
