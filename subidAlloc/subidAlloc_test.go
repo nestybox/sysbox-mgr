@@ -33,7 +33,6 @@ func testAlloc(t *testing.T, subidAlloc intf.SubidAlloc, tests []allocTest) {
 		}
 
 		if errStr != test.wantErr || gotUid != test.wantUid || gotGid != test.wantGid {
-
 			if errStr == "" {
 				errStr = "(no-error)"
 			}
@@ -435,10 +434,10 @@ func TestAllocCommonRange(t *testing.T) {
 	testAlloc(t, subidAlloc, tests)
 
 	subuidCfg = strings.NewReader(`testUser:0:65536
-                                   testUser:524288:65536`)
+                                  testUser:524288:65536`)
 
 	subgidCfg = strings.NewReader(`testUser:65536:65536
-		                             testUser:231072:65536`)
+                                  testUser:231072:65536`)
 
 	subidAlloc, err = New("testUser", NoReuse, subuidCfg, subgidCfg)
 	if err == nil {

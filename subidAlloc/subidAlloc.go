@@ -33,6 +33,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sort"
 	"sync"
 
 	mapset "github.com/deckarep/golang-set"
@@ -157,6 +158,12 @@ func getCommonRanges(uidRanges, gidRanges []user.SubID) []user.SubID {
 		subid := elem.(user.SubID)
 		common = append(common, subid)
 	}
+
+	// this ordering makes multi-range allocations more predictable, which helps in
+	// testing.
+	sort.Slice(common, func(i, j int) bool {
+		return common[i].SubID < common[j].SubID
+	})
 
 	return common
 }
