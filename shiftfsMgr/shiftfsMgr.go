@@ -19,7 +19,6 @@ import (
 	intf "github.com/nestybox/sysbox-mgr/intf"
 	"github.com/nestybox/sysbox-runc/libsysbox/shiftfs"
 	"github.com/opencontainers/runc/libcontainer/configs"
-	"github.com/opencontainers/runc/libcontainer/mount"
 	"github.com/sirupsen/logrus"
 )
 
@@ -56,11 +55,9 @@ func (sm *mgr) Mark(id string, mounts []configs.ShiftfsMount) error {
 		}
 
 		if !testingMode {
-
 			// if shiftfs already marked, no action (some entity other than sysbox did the
 			// marking; we don't track that)
-
-			mounted, err := mount.MountedWithFs(m.Source, "shiftfs")
+			mounted, err := shiftfs.Mounted(m.Source)
 			if err != nil {
 				return fmt.Errorf("error while checking for existing shiftfs mount on %s: %v", m.Source, err)
 			}
@@ -68,6 +65,7 @@ func (sm *mgr) Mark(id string, mounts []configs.ShiftfsMount) error {
 				logrus.Debugf("skipped shiftfs mark on %s (already mounted by some other entity)", m.Source)
 				continue
 			}
+
 			if err := shiftfs.Mark(m.Source); err != nil {
 				return err
 			}

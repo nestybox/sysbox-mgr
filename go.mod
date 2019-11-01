@@ -3,6 +3,7 @@ module github.com/nestybox/sysbox-mgr
 go 1.13
 
 require (
+	github.com/deckarep/golang-set v1.7.1
 	github.com/fsnotify/fsnotify v1.4.7
 	github.com/mrunalp/fileutils v0.0.0-20171103030105-7d4729fb3618
 	github.com/nestybox/sysbox-ipc v0.0.0-00010101000000-000000000000
