@@ -64,9 +64,10 @@ func main() {
 			Value: subidRangeSize,
 			Usage: "subid allocator range (must be a multiple of 64K and <= 4GB)",
 		},
-		cli.BoolFlag{
-			Name:  "subid-ident-map, i",
-			Usage: "subid allocator identity map (maps uid 0->65536 in the system container to 0->65536 on the host); reduces isolation; overrides the -r and -p options.",
+		cli.StringFlag{
+			Name:  "userns-remap",
+			Value: "exclusive",
+			Usage: "default user namespace remap mode for all system containers ('exclusive' or 'identity')",
 		},
 	}
 
@@ -115,6 +116,11 @@ func main() {
 		} else {
 			// Set 'info' as our default log-level.
 			logrus.SetLevel(logrus.InfoLevel)
+		}
+
+		usernsRemap := ctx.GlobalString("userns-remap")
+		if usernsRemap != "exclusive" && usernsRemap != "identity" {
+			return fmt.Errorf("invalid userns-remap mode selection; must be 'exclusive' or 'identity'; got '%s'", usernsRemap)
 		}
 
 		if ctx.GlobalUint64("subid-range-size") != 0 {
