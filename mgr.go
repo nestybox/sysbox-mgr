@@ -337,7 +337,7 @@ func (mgr *SysboxMgr) reqSupMounts(id string, rootfs string, uid, gid uint32, sh
 	return protoMounts, nil
 }
 
-func (mgr *SysboxMgr) allocSubid(id string, size uint64) (uint32, uint32, error) {
+func (mgr *SysboxMgr) allocSubid(id string, size uint64, mode string) (uint32, uint32, error) {
 
 	// get container info
 	mgr.ctLock.Lock()
@@ -351,7 +351,7 @@ func (mgr *SysboxMgr) allocSubid(id string, size uint64) (uint32, uint32, error)
 	// if this is a newly started container, allocate the uid/gid range
 	// (started or stopped containers keep their uid/gid range until removed)
 	if info.uidInfo.size == 0 {
-		uid, gid, err := mgr.subidAlloc.Alloc(id, size)
+		uid, gid, err := mgr.subidAlloc.Alloc(id, size, mode)
 		if err != nil {
 			return uid, gid, fmt.Errorf("failed to allocate uid(gid) for %s: %s", id, err)
 		}

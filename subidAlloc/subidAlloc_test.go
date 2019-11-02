@@ -15,6 +15,7 @@ import (
 type allocTest struct {
 	id      string
 	size    uint64
+	mode    string
 	wantUid uint32
 	wantGid uint32
 	wantErr string
@@ -23,7 +24,7 @@ type allocTest struct {
 func testAlloc(t *testing.T, subidAlloc intf.SubidAlloc, tests []allocTest) {
 
 	for _, test := range tests {
-		gotUid, gotGid, gotErr := subidAlloc.Alloc(test.id, test.size)
+		gotUid, gotGid, gotErr := subidAlloc.Alloc(test.id, test.size, test.mode)
 
 		var errStr string
 		if gotErr == nil {
@@ -40,8 +41,8 @@ func testAlloc(t *testing.T, subidAlloc intf.SubidAlloc, tests []allocTest) {
 				test.wantErr = "(no-error)"
 			}
 
-			t.Errorf("Alloc(%v, %v) failed: got = %v,%v,%v; want = %v,%v,%v",
-				test.id, test.size, gotUid, gotGid, errStr, test.wantUid, test.wantGid, test.wantErr)
+			t.Errorf("Alloc(%v, %v, %v) failed: got = %v,%v,%v; want = %v,%v,%v",
+				test.id, test.size, test.mode, gotUid, gotGid, errStr, test.wantUid, test.wantGid, test.wantErr)
 		}
 	}
 }
@@ -51,7 +52,7 @@ func TestAllocBasic(t *testing.T) {
 	subuidCfg := strings.NewReader(`testUser:0:655360`) // range = 65530 * 10
 	subgidCfg := strings.NewReader(`testUser:0:655360`)
 
-	subidAlloc, err := New("testUser", NoReuse, subuidCfg, subgidCfg)
+	subidAlloc, err := New("testUser", "exclusive", NoReuse, subuidCfg, subgidCfg)
 	if err != nil {
 		t.Errorf("failed to create allocator: %v", err)
 		return
@@ -59,10 +60,10 @@ func TestAllocBasic(t *testing.T) {
 
 	var tests = []allocTest{
 		// id, size, wantUid, wantGid, wantErr
-		{"1", 65536, 0, 0, ""},
-		{"2", 65536, 65536, 65536, ""},
-		{"3", 65536, (65536 * 2), (65536 * 2), ""},
-		{"4", 65536, (65536 * 3), (65536 * 3), ""},
+		{"1", 65536, "", 0, 0, ""},
+		{"2", 65536, "", 65536, 65536, ""},
+		{"3", 65536, "", (65536 * 2), (65536 * 2), ""},
+		{"4", 65536, "", (65536 * 3), (65536 * 3), ""},
 	}
 
 	testAlloc(t, subidAlloc, tests)
@@ -73,7 +74,7 @@ func TestAllocRangeLimit(t *testing.T) {
 	subuidCfg := strings.NewReader(`testUser:0:655360`) // range = 65530 * 10
 	subgidCfg := strings.NewReader(`testUser:0:655360`)
 
-	subidAlloc, err := New("testUser", NoReuse, subuidCfg, subgidCfg)
+	subidAlloc, err := New("testUser", "exclusive", NoReuse, subuidCfg, subgidCfg)
 	if err != nil {
 		t.Errorf("failed to create allocator: %v", err)
 		return
@@ -81,10 +82,10 @@ func TestAllocRangeLimit(t *testing.T) {
 
 	var tests = []allocTest{
 		// id, size, wantUid, wantGid, wantErr
-		{"1", 655361, 0, 0, "exhausted"}, // exceeds range by 1
-		{"2", 524289, 0, 0, "exhausted"}, // exceeds nominal range by 1
-		{"3", 0, 0, 0, "invalid-size"},
-		{"4", 524288, 0, 0, ""}, // matches nominal range
+		{"1", 655361, "", 0, 0, "exhausted"}, // exceeds range by 1
+		{"2", 524289, "", 0, 0, "exhausted"}, // exceeds nominal range by 1
+		{"3", 0, "", 0, 0, "invalid-size"},
+		{"4", 524288, "", 0, 0, ""}, // matches nominal range
 	}
 
 	testAlloc(t, subidAlloc, tests)
@@ -95,7 +96,7 @@ func TestAllocReuse(t *testing.T) {
 	subuidCfg := strings.NewReader(`testUser:65536:131072`)
 	subgidCfg := strings.NewReader(`testUser:65536:131072`)
 
-	subidAlloc, err := New("testUser", Reuse, subuidCfg, subgidCfg)
+	subidAlloc, err := New("testUser", "exclusive", Reuse, subuidCfg, subgidCfg)
 	if err != nil {
 		t.Errorf("failed to create allocator: %v", err)
 		return
@@ -108,9 +109,10 @@ func TestAllocReuse(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		id := string(i)
 		size := uint64(65536)
-		subuid, _, err := subidAlloc.Alloc(id, size)
+		mode := ""
+		subuid, _, err := subidAlloc.Alloc(id, size, mode)
 		if err != nil {
-			t.Errorf("Alloc(%v, %v) failed: %v", id, size, err)
+			t.Errorf("Alloc(%v, %v, %v) failed: %v", id, size, mode, err)
 			return
 		}
 		allocMap[subuid] = size
@@ -120,13 +122,14 @@ func TestAllocReuse(t *testing.T) {
 	for i := 2; i < 4; i++ {
 		id := string(i)
 		size := uint64(65536)
-		subuid, _, err := subidAlloc.Alloc(id, size)
+		mode := ""
+		subuid, _, err := subidAlloc.Alloc(id, size, mode)
 		if err != nil {
-			t.Errorf("Alloc(%v, %v) failed: %v", id, size, err)
+			t.Errorf("Alloc(%v, %v, %v) failed: %v", id, size, mode, err)
 			return
 		}
 		if _, ok := allocMap[subuid]; !ok {
-			t.Errorf("Alloc(%v, %v) reuse failed: got %v", id, size, subuid)
+			t.Errorf("Alloc(%v, %v, %v) reuse failed: got %v", id, size, mode, subuid)
 			return
 		}
 	}
@@ -137,7 +140,7 @@ func TestAllocNoReuse(t *testing.T) {
 	subuidCfg := strings.NewReader(`testUser:65536:131072`)
 	subgidCfg := strings.NewReader(`testUser:65536:131072`)
 
-	subidAlloc, err := New("testUser", NoReuse, subuidCfg, subgidCfg)
+	subidAlloc, err := New("testUser", "exclusive", NoReuse, subuidCfg, subgidCfg)
 	if err != nil {
 		t.Errorf("failed to create allocator: %v", err)
 		return
@@ -145,9 +148,9 @@ func TestAllocNoReuse(t *testing.T) {
 
 	var tests = []allocTest{
 		// id, size, wantUid, wantGid, wantErr
-		{"1", 1, 65536, 65536, ""},
-		{"2", 1, 131072, 131072, ""},
-		{"3", 1, 0, 0, "exhausted"},
+		{"1", 1, "", 65536, 65536, ""},
+		{"2", 1, "", 131072, 131072, ""},
+		{"3", 1, "", 0, 0, "exhausted"},
 	}
 
 	testAlloc(t, subidAlloc, tests)
@@ -158,7 +161,7 @@ func TestAllocErrors(t *testing.T) {
 	subuidCfg := strings.NewReader(`testUser:0:655360`) // range = 65530 * 10
 	subgidCfg := strings.NewReader(`testUser:0:655360`)
 
-	subidAlloc, err := New("testUser", NoReuse, subuidCfg, subgidCfg)
+	subidAlloc, err := New("testUser", "exclusive", NoReuse, subuidCfg, subgidCfg)
 	if err != nil {
 		t.Errorf("failed to create allocator: %v", err)
 		return
@@ -166,8 +169,8 @@ func TestAllocErrors(t *testing.T) {
 
 	var tests = []allocTest{
 		// id, size, wantUid, wantGid, wantErr
-		{"1", 65536, 0, 0, ""},
-		{"1", 65536, 0, 0, "exhausted"},
+		{"1", 65536, "", 0, 0, ""},
+		{"1", 65536, "", 0, 0, "exhausted"},
 	}
 
 	testAlloc(t, subidAlloc, tests)
@@ -179,7 +182,7 @@ func TestFreeBasic(t *testing.T) {
 	subuidCfg := strings.NewReader(`testUser:65536:131072`)
 	subgidCfg := strings.NewReader(`testUser:65536:131072`)
 
-	subidAlloc, err := New("testUser", NoReuse, subuidCfg, subgidCfg)
+	subidAlloc, err := New("testUser", "exclusive", NoReuse, subuidCfg, subgidCfg)
 	if err != nil {
 		t.Errorf("failed to create allocator: %v", err)
 		return
@@ -187,9 +190,9 @@ func TestFreeBasic(t *testing.T) {
 
 	// allocate until exhaustion
 	var tests = []allocTest{
-		{"1", 65536, 65536, 65536, ""},
-		{"2", 65536, 131072, 131072, ""},
-		{"3", 1, 0, 0, "exhausted"},
+		{"1", 65536, "", 65536, 65536, ""},
+		{"2", 65536, "", 131072, 131072, ""},
+		{"3", 1, "", 0, 0, "exhausted"},
 	}
 
 	testAlloc(t, subidAlloc, tests)
@@ -201,7 +204,7 @@ func TestFreeBasic(t *testing.T) {
 
 	// reallocate to verify that free worked
 	tests = []allocTest{
-		{"1", 65536, 65536, 65536, ""},
+		{"1", 65536, "", 65536, 65536, ""},
 	}
 
 	testAlloc(t, subidAlloc, tests)
@@ -212,15 +215,15 @@ func TestFreeErrors(t *testing.T) {
 	subuidCfg := strings.NewReader(`testUser:0:65536`)
 	subgidCfg := strings.NewReader(`testUser:0:65536`)
 
-	subidAlloc, err := New("testUser", NoReuse, subuidCfg, subgidCfg)
+	subidAlloc, err := New("testUser", "exclusive", NoReuse, subuidCfg, subgidCfg)
 	if err != nil {
 		t.Errorf("failed to create allocator: %v", err)
 		return
 	}
 
 	var tests = []allocTest{
-		{"1", 65536, 0, 0, ""},
-		{"2", 1, 0, 0, "exhausted"},
+		{"1", 65536, "", 0, 0, ""},
+		{"2", 1, "", 0, 0, "exhausted"},
 	}
 
 	testAlloc(t, subidAlloc, tests)
@@ -239,7 +242,7 @@ func TestAllocInvalidUser(t *testing.T) {
 	subuidCfg := strings.NewReader(`testUser:0:131072`)
 	subgidCfg := strings.NewReader(`testUser:0:131072`)
 
-	_, err := New("anotherUser", NoReuse, subuidCfg, subgidCfg)
+	_, err := New("anotherUser", "exclusive", NoReuse, subuidCfg, subgidCfg)
 	if err == nil {
 		t.Errorf("idAlloc.New(): want error, got no error")
 		return
@@ -252,7 +255,7 @@ func TestConcurrency(t *testing.T) {
 	subuidCfg := strings.NewReader(`testUser:0:2097152`)
 	subgidCfg := strings.NewReader(`testUser:0:2097152`)
 
-	subidAlloc, err := New("testUser", NoReuse, subuidCfg, subgidCfg)
+	subidAlloc, err := New("testUser", "exclusive", NoReuse, subuidCfg, subgidCfg)
 	if err != nil {
 		t.Errorf("failed to create allocator: %v", err)
 		return
@@ -273,7 +276,7 @@ func TestConcurrency(t *testing.T) {
 	for i := 0; i < numWorkers; i++ {
 		id := string(i)
 		go func(subidAlloc intf.SubidAlloc, id string, size uint64) {
-			uid, gid, err := subidAlloc.Alloc(id, size)
+			uid, gid, err := subidAlloc.Alloc(id, size, "")
 			ch <- allocResp{uid, gid, err}
 		}(subidAlloc, id, allocSize)
 	}
@@ -319,7 +322,7 @@ func TestConcurrency(t *testing.T) {
 	// reallocate to ensure freeing worked
 	for i := 0; i < numWorkers; i++ {
 		id := string(i)
-		_, _, err := subidAlloc.Alloc(id, allocSize)
+		_, _, err := subidAlloc.Alloc(id, allocSize, "")
 		if err != nil {
 			t.Errorf("AllocUid(%v, %v) failed: %v", id, allocSize, err)
 			return
@@ -332,7 +335,7 @@ func TestAllocLimits(t *testing.T) {
 	subuidCfg := strings.NewReader(`testUser:0:4294967296`)
 	subgidCfg := strings.NewReader(`testUser:0:4294967296`)
 
-	subidAlloc, err := New("testUser", NoReuse, subuidCfg, subgidCfg)
+	subidAlloc, err := New("testUser", "exclusive", NoReuse, subuidCfg, subgidCfg)
 	if err != nil {
 		t.Errorf("failed to create allocator: %v", err)
 		return
@@ -340,8 +343,8 @@ func TestAllocLimits(t *testing.T) {
 
 	var tests = []allocTest{
 		// id, size, wantUid, wantGid, wantErr
-		{"1", 4294967296, 0, 0, ""},
-		{"2", 4294967296, 0, 0, "exhausted"},
+		{"1", 4294967296, "", 0, 0, ""},
+		{"2", 4294967296, "", 0, 0, "exhausted"},
 	}
 
 	testAlloc(t, subidAlloc, tests)
@@ -349,7 +352,7 @@ func TestAllocLimits(t *testing.T) {
 	subuidCfg = strings.NewReader(`testUser:0:0`)
 	subgidCfg = strings.NewReader(`testUser:0:0`)
 
-	subidAlloc, err = New("testUser", NoReuse, subuidCfg, subgidCfg)
+	subidAlloc, err = New("testUser", "exclusive", NoReuse, subuidCfg, subgidCfg)
 	if err != nil {
 		t.Errorf("failed to create allocator: %v", err)
 		return
@@ -357,7 +360,7 @@ func TestAllocLimits(t *testing.T) {
 
 	tests = []allocTest{
 		// id, size, wantUid, wantGid, wantErr
-		{"3", 1, 0, 0, "exhausted"},
+		{"3", 1, "", 0, 0, "exhausted"},
 	}
 
 	testAlloc(t, subidAlloc, tests)
@@ -371,7 +374,7 @@ func TestAllocMultiRange(t *testing.T) {
 	subgidCfg := strings.NewReader(`testUser:0:65536
                                    testUser:524288:65536`)
 
-	subidAlloc, err := New("testUser", NoReuse, subuidCfg, subgidCfg)
+	subidAlloc, err := New("testUser", "exclusive", NoReuse, subuidCfg, subgidCfg)
 	if err != nil {
 		t.Errorf("failed to create allocator: %v", err)
 		return
@@ -379,9 +382,9 @@ func TestAllocMultiRange(t *testing.T) {
 
 	var tests = []allocTest{
 		// id, size, wantUid, wantGid, wantErr
-		{"1", 65536, 0, 0, ""},
-		{"2", 65536, 524288, 524288, ""},
-		{"3", 65536, 0, 0, "exhausted"},
+		{"1", 65536, "", 0, 0, ""},
+		{"2", 65536, "", 524288, 524288, ""},
+		{"3", 65536, "", 0, 0, "exhausted"},
 	}
 
 	testAlloc(t, subidAlloc, tests)
@@ -420,15 +423,15 @@ func TestAllocCommonRange(t *testing.T) {
 	subgidCfg := strings.NewReader(`testUser:65536:65536
 		                             testUser:0:65536`)
 
-	subidAlloc, err := New("testUser", NoReuse, subuidCfg, subgidCfg)
+	subidAlloc, err := New("testUser", "exclusive", NoReuse, subuidCfg, subgidCfg)
 	if err != nil {
 		t.Errorf("failed to create allocator: %v", err)
 	}
 
 	var tests = []allocTest{
 		// id, size, wantUid, wantGid, wantErr
-		{"1", 65536, 0, 0, ""},
-		{"2", 65536, 0, 0, "exhausted"},
+		{"1", 65536, "", 0, 0, ""},
+		{"2", 65536, "", 0, 0, "exhausted"},
 	}
 
 	testAlloc(t, subidAlloc, tests)
@@ -439,8 +442,123 @@ func TestAllocCommonRange(t *testing.T) {
 	subgidCfg = strings.NewReader(`testUser:65536:65536
                                   testUser:231072:65536`)
 
-	subidAlloc, err = New("testUser", NoReuse, subuidCfg, subgidCfg)
+	subidAlloc, err = New("testUser", "exclusive", NoReuse, subuidCfg, subgidCfg)
 	if err == nil {
 		t.Errorf("subidAlloc() passed; expected failure")
 	}
+}
+
+func TestIdentityMode(t *testing.T) {
+
+	subuidCfg := strings.NewReader(`testUser:0:655360`) // range = 65530 * 10
+	subgidCfg := strings.NewReader(`testUser:0:655360`)
+
+	subidAlloc, err := New("testUser", "identity", NoReuse, subuidCfg, subgidCfg)
+	if err != nil {
+		t.Errorf("failed to create allocator: %v", err)
+		return
+	}
+
+	var tests = []allocTest{
+		// id, size, wantUid, wantGid, wantErr
+		{"1", 65536, "", 0, 0, ""},
+		{"2", 65536, "", 0, 0, ""},
+		{"3", 65536, "", 0, 0, ""},
+		{"4", 65536, "", 0, 0, ""},
+	}
+
+	testAlloc(t, subidAlloc, tests)
+
+	// free all ranges
+	ids := []string{"1", "2", "3", "4"}
+	for _, id := range ids {
+		if err := subidAlloc.Free(id); err != nil {
+			t.Errorf("Free() returned %v; want no-err", err)
+		}
+	}
+
+	// reallocate to verify the free worked
+	testAlloc(t, subidAlloc, tests)
+
+	// reallocate for container id "1" and verify this fails
+	_, _, err = subidAlloc.Alloc("1", 65536, "")
+	if err == nil {
+		t.Errorf("Alloc() returned no error; want \"exhausted\"")
+	}
+
+}
+
+func TestExclusiveModeOverride(t *testing.T) {
+
+	// Configure subid allocator in exclusive mode but issue allocs with identity-mode
+
+	subuidCfg := strings.NewReader(`testUser:0:655360`) // range = 65530 * 10
+	subgidCfg := strings.NewReader(`testUser:0:655360`)
+
+	subidAlloc, err := New("testUser", "exclusive", NoReuse, subuidCfg, subgidCfg)
+	if err != nil {
+		t.Errorf("failed to create allocator: %v", err)
+		return
+	}
+
+	var tests = []allocTest{
+		// id, size, wantUid, wantGid, wantErr
+		{"1", 65536, "", 0, 0, ""},
+		{"2", 65536, "", 65536, 65536, ""},
+		{"3", 65536, "identity", 0, 0, ""},
+		{"4", 65536, "", (65536 * 2), (65536 * 2), ""},
+		{"5", 65536, "exclusive", (65536 * 3), (65536 * 3), ""},
+		{"6", 65536, "identity", 0, 0, ""},
+	}
+
+	testAlloc(t, subidAlloc, tests)
+
+	// free all ranges
+	ids := []string{"1", "2", "3", "4", "5", "6"}
+	for _, id := range ids {
+		if err := subidAlloc.Free(id); err != nil {
+			t.Errorf("Free() returned %v; want no-err", err)
+		}
+	}
+
+	// reallocate to verify the free worked
+	testAlloc(t, subidAlloc, tests)
+}
+
+func TestIdentityModeOverride(t *testing.T) {
+
+	// Configure subid allocator in identity mode but issue allocs with exclusive-mode
+
+	subuidCfg := strings.NewReader(`testUser:0:655360`) // range = 65530 * 10
+	subgidCfg := strings.NewReader(`testUser:0:655360`)
+
+	subidAlloc, err := New("testUser", "identity", NoReuse, subuidCfg, subgidCfg)
+	if err != nil {
+		t.Errorf("failed to create allocator: %v", err)
+		return
+	}
+
+	var tests = []allocTest{
+		// id, size, wantUid, wantGid, wantErr
+		{"1", 65536, "", 0, 0, ""},
+		{"2", 65536, "", 0, 0, ""},
+		{"3", 65536, "exclusive", 0, 0, ""},
+		{"4", 65536, "", 0, 0, ""},
+		{"5", 65536, "exclusive", 65536, 65536, ""},
+		{"6", 65536, "exclusive", (65536 * 2), (65536 * 2), ""},
+		{"7", 65536, "identity", 0, 0, ""},
+	}
+
+	testAlloc(t, subidAlloc, tests)
+
+	// free all ranges
+	ids := []string{"1", "2", "3", "4", "5", "6", "7"}
+	for _, id := range ids {
+		if err := subidAlloc.Free(id); err != nil {
+			t.Errorf("Free() returned %v; want no-err", err)
+		}
+	}
+
+	// reallocate to verify the free worked
+	testAlloc(t, subidAlloc, tests)
 }

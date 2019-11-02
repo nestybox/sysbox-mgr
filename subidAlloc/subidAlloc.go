@@ -47,6 +47,14 @@ const (
 	allocBlkSize uint32 = 65536 // min uid(gid) allocation range
 )
 
+// The alloc mode indicates the default allocation mode
+type Mode int
+
+const (
+	Exclusive Mode = iota // exclusive subuid(gid) allocation per system container
+	Identity              // identity map (root user in container mapped to root user in host)
+)
+
 // The reuse policy indicates how to deal with allocs when the subuid(gid) range is exhausted
 type ReusePolicy int
 
@@ -55,12 +63,19 @@ const (
 	NoReuse                    // do not re-use (allocation fails with error = "exhausted")
 )
 
+// Subid alloc info for a given container
+type allocInfo struct {
+	mode  Mode
+	subid uint32
+}
+
 // subidAlloc class (implements the UidAllocator interface)
 type subidAlloc struct {
-	idRanges []user.SubID        // subuid range(s)
-	idAllocs []*buddyAlloc.Buddy // subid allocator(s) (one per contiguous subuid range)
-	allocMap map[string]uint32   // table of container Ids and associated uid/gid allocs
-	mu       sync.Mutex          // protects allocMap
+	mode     Mode                 // default allocation mode
+	idRanges []user.SubID         // subuid range(s)
+	idAllocs []*buddyAlloc.Buddy  // subid allocator(s) (one per contiguous subuid range)
+	allocMap map[string]allocInfo // table of container IDs and associated alloc info
+	mu       sync.Mutex           // protects allocMap
 }
 
 func toBuddyPolicy(p ReusePolicy) buddyAlloc.ReusePolicy {
@@ -78,12 +93,28 @@ func toBuddyPolicy(p ReusePolicy) buddyAlloc.ReusePolicy {
 	return bp
 }
 
+func toAllocMode(m string) Mode {
+	var allocMode Mode
+
+	switch m {
+	case "identity":
+		allocMode = Identity
+		break
+	default:
+		allocMode = Exclusive
+		break
+	}
+
+	return allocMode
+}
+
 // New creates an subidAlloc object
 //
 // userName is the Linux user whose subid/gid ranges will be used
+// mode is the default allocation mode; must be "exclusive" or "identity"
 // reuse is the reuse policy for subid/gid
 // subuidSrc and subgidSrc contain the subid/gid ranges for the system
-func New(userName string, reuse ReusePolicy, subuidSrc, subgidSrc io.Reader) (intf.SubidAlloc, error) {
+func New(userName string, mode string, reuse ReusePolicy, subuidSrc, subgidSrc io.Reader) (intf.SubidAlloc, error) {
 
 	filter := func(entry user.SubID) bool {
 		return entry.Name == userName
@@ -117,9 +148,10 @@ func New(userName string, reuse ReusePolicy, subuidSrc, subgidSrc io.Reader) (in
 
 	// create the allocator
 	sub := &subidAlloc{
+		mode:     toAllocMode(mode),
 		idRanges: ranges,
 		idAllocs: make([]*buddyAlloc.Buddy, len(ranges)),
-		allocMap: make(map[string]uint32),
+		allocMap: make(map[string]allocInfo),
 	}
 
 	// for each subid range that is large enough, create a buddy allocator
@@ -204,8 +236,22 @@ func (sub *subidAlloc) freeID(subid uint32) error {
 	return errors.New("not-found")
 }
 
+func (sub *subidAlloc) resolveAllocMode(modeOverride string) Mode {
+	if modeOverride == "exclusive" {
+		return Exclusive
+	} else if modeOverride == "identity" {
+		return Identity
+	} else {
+		return sub.mode
+	}
+}
+
 // Implements intf.SubidAlloc.Alloc
-func (sub *subidAlloc) Alloc(id string, size uint64) (uint32, uint32, error) {
+func (sub *subidAlloc) Alloc(id string, size uint64, mode string) (uint32, uint32, error) {
+	var (
+		subid uint32
+		err   error
+	)
 
 	sub.mu.Lock()
 	if _, found := sub.allocMap[id]; found {
@@ -214,16 +260,22 @@ func (sub *subidAlloc) Alloc(id string, size uint64) (uint32, uint32, error) {
 	}
 	sub.mu.Unlock()
 
-	subid, err := sub.allocID(size)
-	if err != nil {
-		return 0, 0, err
+	allocMode := sub.resolveAllocMode(mode)
+
+	if allocMode == Exclusive {
+		subid, err = sub.allocID(size)
+		if err != nil {
+			return 0, 0, err
+		}
+	} else {
+		subid = 0 // identity-map
 	}
 
 	sub.mu.Lock()
-	sub.allocMap[id] = subid
+	sub.allocMap[id] = allocInfo{allocMode, subid}
 	sub.mu.Unlock()
 
-	logrus.Debugf("Alloc(%v, %v) = %v, %v", id, size, subid, subid)
+	logrus.Debugf("Alloc(%s, %v, %s) = %v, %v", id, size, mode, subid, subid)
 
 	return subid, subid, nil
 }
@@ -232,16 +284,18 @@ func (sub *subidAlloc) Alloc(id string, size uint64) (uint32, uint32, error) {
 func (sub *subidAlloc) Free(id string) error {
 
 	sub.mu.Lock()
-	subid, found := sub.allocMap[id]
+	info, found := sub.allocMap[id]
 	if !found {
 		sub.mu.Unlock()
 		return fmt.Errorf("not-found")
 	}
 	sub.mu.Unlock()
 
-	err := sub.freeID(subid)
-	if err != nil {
-		return err
+	if info.mode == Exclusive {
+		err := sub.freeID(info.subid)
+		if err != nil {
+			return err
+		}
 	}
 
 	sub.mu.Lock()
