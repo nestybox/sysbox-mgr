@@ -67,7 +67,7 @@ func main() {
 		cli.StringFlag{
 			Name:  "userns-remap",
 			Value: "exclusive",
-			Usage: "default user namespace remap mode for all system containers ('exclusive' or 'identity')",
+			Usage: "default user namespace remap mode for system containers ('exclusive' or 'identity')",
 		},
 	}
 
