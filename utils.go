@@ -149,14 +149,6 @@ func getSubidLimits(file string) ([]uint64, error) {
 func setupSubidAlloc(ctx *cli.Context) (intf.SubidAlloc, error) {
 	var reusePol subidAlloc.ReusePolicy
 
-	allocMode := ctx.GlobalString("userns-remap")
-
-	if allocMode == "identity" {
-		logrus.Infof("Sysbox configured in identity userns-remap mode")
-	} else {
-		logrus.Infof("Sysbox configured in exclusive userns-remap mode")
-	}
-
 	// get subid min/max limits from login.defs (if any)
 	limits, err := getSubidLimits("/etc/login.defs")
 	if err != nil {
@@ -198,7 +190,7 @@ func setupSubidAlloc(ctx *cli.Context) (intf.SubidAlloc, error) {
 	}
 	defer subgidSrc.Close()
 
-	subidAlloc, err := subidAlloc.New("sysbox", allocMode, reusePol, subuidSrc, subgidSrc)
+	subidAlloc, err := subidAlloc.New("sysbox", "exclusive", reusePol, subuidSrc, subgidSrc)
 	if err != nil {
 		return nil, err
 	}

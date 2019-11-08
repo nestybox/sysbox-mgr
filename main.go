@@ -62,12 +62,7 @@ func main() {
 		cli.Uint64Flag{
 			Name:  "subid-range-size, r",
 			Value: subidRangeSize,
-			Usage: "subid allocator range (must be a multiple of 64K and <= 4GB)",
-		},
-		cli.StringFlag{
-			Name:  "userns-remap",
-			Value: "exclusive",
-			Usage: "default user namespace remap mode for system containers ('exclusive' or 'identity')",
+			Usage: "subid allocator range (must be a multiple of 64K and <= 4G)",
 		},
 	}
 
