@@ -84,22 +84,22 @@ func New(hostDir string) (intf.VolMgr, error) {
 }
 
 // Implements intf.VolMgr.CreateVol
-func (dsm *mgr) CreateVol(id, rootfs, mountpoint string, uid, gid uint32, shiftUids bool) ([]specs.Mount, error) {
+func (dsm *mgr) CreateVol(id, rootfs, mountpoint string, uid, gid uint32, shiftUids bool) (*specs.Mount, error) {
 	var err error
 
 	volPath := filepath.Join(dsm.hostDir, id)
 	mountPath := filepath.Join(rootfs, mountpoint)
 
-	mounts := []specs.Mount{}
+	mount := &specs.Mount{}
 	if _, err = os.Stat(volPath); err == nil {
-		return mounts, fmt.Errorf("volume directory for container %v already exists", id)
+		return mount, fmt.Errorf("volume directory for container %v already exists", id)
 	}
 
 	// create volume info
 	dsm.mu.Lock()
 	if _, found := dsm.volTable[id]; found {
 		dsm.mu.Unlock()
-		return mounts, fmt.Errorf("volume for container %v already exists", id)
+		return mount, fmt.Errorf("volume for container %v already exists", id)
 	}
 	vi := volInfo{
 		volPath:   volPath,
@@ -120,7 +120,7 @@ func (dsm *mgr) CreateVol(id, rootfs, mountpoint string, uid, gid uint32, shiftU
 	}()
 
 	if err = os.Mkdir(volPath, 0700); err != nil {
-		return mounts, fmt.Errorf("failed to create volume for container %v: %v", id, err)
+		return mount, fmt.Errorf("failed to create volume for container %v: %v", id, err)
 	}
 
 	// Set the ownership of the newly created volume to match the given uid(gid); this
@@ -130,27 +130,26 @@ func (dsm *mgr) CreateVol(id, rootfs, mountpoint string, uid, gid uint32, shiftU
 	// overlayfs on this volume and overlayfs can't be mounted on top of shiftfs).
 	if err = os.Chown(volPath, int(uid), int(gid)); err != nil {
 		os.RemoveAll(volPath)
-		return mounts, fmt.Errorf("failed to set ownership of volume %v: %v", volPath, err)
+		return mount, fmt.Errorf("failed to set ownership of volume %v: %v", volPath, err)
 	}
 
 	// sync the contents of container's mountpoint (if any) to the newly created volume ("sync-in")
 	if _, err := os.Stat(mountPath); err == nil {
 		if err = dsm.rsyncVol(mountPath, volPath, uid, gid, shiftUids); err != nil {
 			os.RemoveAll(volPath)
-			return mounts, fmt.Errorf("volume sync-in failed: %v", err)
+			return mount, fmt.Errorf("volume sync-in failed: %v", err)
 		}
 	}
 
-	m := specs.Mount{
+	mount = &specs.Mount{
 		Source:      volPath,
 		Destination: mountpoint,
 		Type:        "bind",
 		Options:     []string{"rbind", "rprivate"},
 	}
-	mounts = append(mounts, m)
 
 	logrus.Debugf("Created docker store volume at %v", volPath)
-	return mounts, nil
+	return mount, nil
 }
 
 // Implements intf.VolMgr.DestroyVol

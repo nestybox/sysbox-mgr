@@ -109,7 +109,7 @@ func equalStrings(a, b []string) bool {
 	return true
 }
 
-func equalMount(a, b specs.Mount) bool {
+func equalMount(a, b *specs.Mount) bool {
 	if a.Source != b.Source ||
 		a.Destination != b.Destination ||
 		a.Type != b.Type ||
@@ -120,36 +120,20 @@ func equalMount(a, b specs.Mount) bool {
 	return true
 }
 
-func equalMounts(a, b []specs.Mount) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if !equalMount(a[i], b[i]) {
-			return false
-		}
-	}
-	return true
-}
-
-func testCreateVolWork(id, hostDir, rootfs, mountpoint string, uid, gid uint32, shiftUids bool) ([]specs.Mount, error) {
-	got := []specs.Mount{}
-
-	want := []specs.Mount{
-		{
-			Source:      filepath.Join(hostDir, id),
-			Destination: mountpoint,
-			Type:        "bind",
-			Options:     []string{"rbind", "rprivate"},
-		},
+func testCreateVolWork(id, hostDir, rootfs, mountpoint string, uid, gid uint32, shiftUids bool) (*specs.Mount, error) {
+	want := &specs.Mount{
+		Source:      filepath.Join(hostDir, id),
+		Destination: mountpoint,
+		Type:        "bind",
+		Options:     []string{"rbind", "rprivate"},
 	}
 
 	dsm, err := New(hostDir)
 	if err != nil {
-		return got, fmt.Errorf("New(%v) returned %v", hostDir, err)
+		return nil, fmt.Errorf("New(%v) returned %v", hostDir, err)
 	}
 
-	got, err = dsm.CreateVol(id, rootfs, mountpoint, uid, gid, shiftUids)
+	got, err := dsm.CreateVol(id, rootfs, mountpoint, uid, gid, shiftUids)
 	if err != nil {
 		return got, fmt.Errorf("CreateVol() returned %v", err)
 	}
@@ -161,7 +145,7 @@ func testCreateVolWork(id, hostDir, rootfs, mountpoint string, uid, gid uint32, 
 	}
 
 	// check that CreateVol returned the expected mount
-	if !equalMounts(got, want) {
+	if !equalMount(got, want) {
 		return got, fmt.Errorf("CreateVol(%v, %v, %v, %v, %v) returned %v, want %v", id, rootfs, mountpoint, uid, gid, got, want)
 	}
 

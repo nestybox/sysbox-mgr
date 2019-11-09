@@ -40,7 +40,7 @@ type VolMgr interface {
 	// 'mountpoint' is the container's mountpoint (relative to it's rootfs)
 	// 'uid' and 'gid' are the uid(gid) of the container root process in the host's namespace.
 	// 'shiftUids' indicates if sysbox-runc is using uid-shifting for the container.
-	CreateVol(id, rootfs, mountpoint string, uid, gid uint32, shiftUids bool) ([]specs.Mount, error)
+	CreateVol(id, rootfs, mountpoint string, uid, gid uint32, shiftUids bool) (*specs.Mount, error)
 
 	// Destroys a volume for the container with the given 'id'.
 	DestroyVol(id string) error

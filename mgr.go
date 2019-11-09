@@ -6,11 +6,12 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"sync"
+	"syscall"
 
 	"github.com/fsnotify/fsnotify"
 	grpc "github.com/nestybox/sysbox-ipc/sysboxMgrGrpc"
-	pb "github.com/nestybox/sysbox-ipc/sysboxMgrGrpc/protobuf"
 	intf "github.com/nestybox/sysbox-mgr/intf"
 	"github.com/nestybox/sysbox-mgr/shiftfsMgr"
 	"github.com/opencontainers/runc/libcontainer/configs"
@@ -37,10 +38,18 @@ type uidInfo struct {
 	size uint64
 }
 
+type dsPrepInfo struct {
+	path    string
+	chown   bool
+	origUid uint32
+	origGid uint32
+}
+
 type containerInfo struct {
 	state        containerState
 	rootfs       string
-	supMounts    []specs.Mount
+	dsPrep       dsPrepInfo
+	dsMount      *specs.Mount
 	uidInfo      uidInfo
 	shiftfsMarks []configs.ShiftfsMount
 }
@@ -56,6 +65,8 @@ type SysboxMgr struct {
 	rtLock        sync.Mutex
 	rootfsMonStop chan int
 	rootfsWatcher *fsnotify.Watcher
+	dsPrepTable   map[string]string // mount source -> cont id
+	dsLock        sync.Mutex
 }
 
 // newSysboxMgr creates an instance of the sysbox manager
@@ -87,15 +98,17 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		contTable:     make(map[string]containerInfo),
 		rootfsTable:   make(map[string]string),
 		rootfsMonStop: make(chan int),
+		dsPrepTable:   make(map[string]string),
 	}
 
 	cb := &grpc.ServerCallbacks{
-		Register:       mgr.register,
-		Unregister:     mgr.unregister,
-		SubidAlloc:     mgr.allocSubid,
-		ReqSupMounts:   mgr.reqSupMounts,
-		ReqShiftfsMark: mgr.reqShiftfsMark,
-		Pause:          mgr.pause,
+		Register:             mgr.register,
+		Unregister:           mgr.unregister,
+		SubidAlloc:           mgr.allocSubid,
+		ReqDockerStoreMount:  mgr.reqDockerStoreMount,
+		PrepDockerStoreMount: mgr.prepDockerStoreMount,
+		ReqShiftfsMark:       mgr.reqShiftfsMark,
+		Pause:                mgr.pause,
 	}
 
 	mgr.grpcServer = grpc.NewServerStub(cb)
@@ -188,7 +201,6 @@ func (mgr *SysboxMgr) unregister(id string) error {
 	}
 	info.state = stopped
 
-	// Request shiftfs manager to remove shiftfs mounts
 	if len(info.shiftfsMarks) != 0 {
 		if err := mgr.shiftfsMgr.Unmark(id, info.shiftfsMarks); err != nil {
 			return fmt.Errorf("failed to remove shiftfs marks for container %s: %s", id, err)
@@ -196,17 +208,27 @@ func (mgr *SysboxMgr) unregister(id string) error {
 		info.shiftfsMarks = []configs.ShiftfsMount{}
 	}
 
-	// Request docker-store volume manager to sync back contents to the container's rootfs.
-	//
-	// Note that we do this when the container is stopped, not when it's running. This
-	// means we take the performance hit on container stop. The performance hit is a
-	// function of how many changes the sys container did on its /var/lib/docker
-	// directory. If in the future we think the hit is too much, we could do the sync
-	// periodically while the container is running (e.g., using a combination of fsnotify +
-	// rsync).
-	if err := mgr.dsVolMgr.SyncOut(id); err != nil {
-		return fmt.Errorf("docker-store vol sync-out failed: %v", err)
+	if info.dsPrep.chown {
+		if err := rChown(info.dsPrep.path, info.dsPrep.origUid, info.dsPrep.origGid); err != nil {
+			return fmt.Errorf("failed to reverse-chown docker-store mount source at %s: %s", info.dsPrep.path, err)
+		}
+	} else if info.dsMount != nil {
+		// Request docker-store volume manager to sync back contents to the container's rootfs.
+		//
+		// Note that we do this when the container is stopped, not when it's running. This
+		// means we take the performance hit on container stop. The performance hit is a
+		// function of how many changes the sys container did on its /var/lib/docker
+		// directory. If in the future we think the hit is too much, we could do the sync
+		// periodically while the container is running (e.g., using a combination of fsnotify +
+		// rsync).
+		if err := mgr.dsVolMgr.SyncOut(id); err != nil {
+			return fmt.Errorf("docker-store vol sync-out failed: %v", err)
+		}
 	}
+
+	mgr.dsLock.Lock()
+	delete(mgr.dsPrepTable, info.dsPrep.path)
+	mgr.dsLock.Unlock()
 
 	mgr.ctLock.Lock()
 	mgr.contTable[id] = info
@@ -273,7 +295,7 @@ func (mgr *SysboxMgr) removeCont(id string) {
 		return
 	}
 
-	if len(info.supMounts) != 0 {
+	if info.dsMount != nil {
 		if err := mgr.dsVolMgr.DestroyVol(id); err != nil {
 			logrus.Errorf("rootfsMon: failed to destroy docker-store-volume for container %s: %s", id, err)
 		}
@@ -292,7 +314,7 @@ func (mgr *SysboxMgr) removeCont(id string) {
 	logrus.Infof("released resources for container %s", id)
 }
 
-func (mgr *SysboxMgr) reqSupMounts(id string, rootfs string, uid, gid uint32, shiftUids bool) ([]*pb.Mount, error) {
+func (mgr *SysboxMgr) reqDockerStoreMount(id string, rootfs string, uid, gid uint32, shiftUids bool) (*specs.Mount, error) {
 
 	// get container info
 	mgr.ctLock.Lock()
@@ -300,41 +322,93 @@ func (mgr *SysboxMgr) reqSupMounts(id string, rootfs string, uid, gid uint32, sh
 	mgr.ctLock.Unlock()
 
 	if !found {
-		return []*pb.Mount{}, fmt.Errorf("container %s is not registered", id)
+		return nil, fmt.Errorf("container %s is not registered", id)
 	}
 
-	// if this is a newly started container, setup its supplementary mounts
-	// (started or stopped containers keep their supp mounts until removed)
-	if len(info.supMounts) == 0 {
-		info.rootfs = rootfs
-		info.supMounts = []specs.Mount{}
-
-		// docker-store-volume mount
+	// if this is a newly started container, setup it's docker-store mount
+	// (started or stopped containers keep their docker-store mount until removed)
+	if info.dsMount == nil {
 		m, err := mgr.dsVolMgr.CreateVol(id, rootfs, "/var/lib/docker", uid, gid, shiftUids)
 		if err != nil {
-			return []*pb.Mount{}, err
+			return nil, err
 		}
-		info.supMounts = append(info.supMounts, m...)
+
+		info.rootfs = rootfs
+		info.dsMount = m
 
 		mgr.ctLock.Lock()
 		mgr.contTable[id] = info
 		mgr.ctLock.Unlock()
 	}
 
-	// TODO: this conversion should be moved to the GRPC server side ...
-	// convert []spec.Mount to []*pb.Mount
-	protoMounts := []*pb.Mount{}
-	for _, sm := range info.supMounts {
-		protoMount := &pb.Mount{
-			Source: sm.Source,
-			Dest:   sm.Destination,
-			Type:   sm.Type,
-			Opt:    sm.Options,
-		}
-		protoMounts = append(protoMounts, protoMount)
+	return info.dsMount, nil
+}
+
+func (mgr *SysboxMgr) prepDockerStoreMount(id string, path string, uid, gid uint32, shiftUids bool) error {
+	var origUid, origGid uint32
+
+	// get container info
+	mgr.ctLock.Lock()
+	info, found := mgr.contTable[id]
+	mgr.ctLock.Unlock()
+
+	if !found {
+		return fmt.Errorf("container %s is not registered", id)
 	}
 
-	return protoMounts, nil
+	// if another sys container has the same docker-store mount source, return error (it can't be shared)
+	mgr.dsLock.Lock()
+	cid, found := mgr.dsPrepTable[path]
+	if found {
+		mgr.dsLock.Unlock()
+		return fmt.Errorf("docker-store mount source at %s is already in use by container %s", path, cid)
+	}
+	mgr.dsPrepTable[path] = id
+	mgr.dsLock.Unlock()
+
+	// if uid shifting is being used, modify the ownership of the mount source to uid:gid
+	if shiftUids {
+
+		// get the current uid(gid) for the docker-store mount source
+		fi, err := os.Stat(path)
+		if err != nil {
+			mgr.dsLock.Lock()
+			delete(mgr.dsPrepTable, path)
+			mgr.dsLock.Unlock()
+			return fmt.Errorf("failed to stat docker-store mount source at %s", path)
+		}
+		st, ok := fi.Sys().(*syscall.Stat_t)
+		if !ok {
+			mgr.dsLock.Lock()
+			delete(mgr.dsPrepTable, path)
+			mgr.dsLock.Unlock()
+			return fmt.Errorf("failed to convert to syscall.Stat_t")
+		}
+		origUid = st.Uid
+		origGid = st.Gid
+
+		// modify the docker-store mount ownership to match the sys container's root user-ID
+		if err := rChown(path, uid, gid); err != nil {
+			mgr.dsLock.Lock()
+			delete(mgr.dsPrepTable, path)
+			mgr.dsLock.Unlock()
+			return fmt.Errorf("failed to chown docker-store mount source at %s: %s", path, err)
+		}
+	}
+
+	// store the prep info so we can revert it when the container is stopped
+	info.dsPrep = dsPrepInfo{
+		path:    path,
+		chown:   shiftUids,
+		origUid: origUid,
+		origGid: origGid,
+	}
+
+	mgr.ctLock.Lock()
+	mgr.contTable[id] = info
+	mgr.ctLock.Unlock()
+
+	return nil
 }
 
 func (mgr *SysboxMgr) allocSubid(id string, size uint64) (uint32, uint32, error) {
