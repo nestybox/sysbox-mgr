@@ -113,11 +113,6 @@ func main() {
 			logrus.SetLevel(logrus.InfoLevel)
 		}
 
-		usernsRemap := ctx.GlobalString("userns-remap")
-		if usernsRemap != "exclusive" && usernsRemap != "identity" {
-			return fmt.Errorf("invalid userns-remap mode selection; must be 'exclusive' or 'identity'; got '%s'", usernsRemap)
-		}
-
 		if ctx.GlobalUint64("subid-range-size") != 0 {
 			subidRangeSize = ctx.GlobalUint64("subid-range-size")
 		}

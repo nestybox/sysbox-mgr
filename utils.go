@@ -272,3 +272,12 @@ func sanitizeRootfs(rootfs string) string {
 
 	return rootfs
 }
+
+func rChown(path string, uid, gid uint32) error {
+	return filepath.Walk(path, func(name string, info os.FileInfo, err error) error {
+		if err == nil {
+			err = os.Chown(name, int(uid), int(gid))
+		}
+		return err
+	})
+}
