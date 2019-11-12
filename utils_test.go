@@ -67,6 +67,32 @@ func TestAllocSubidRange(t *testing.T) {
 	want = append(subID, user.SubID{"sysbox", 165536, 65536})
 	compareSubidRanges(t, want, got)
 
+	// with overlapping ranges
+	subID = []user.SubID{
+		{"user1", 100000, 65536},
+		{"user2", 100000, 65536},
+		{"user3", 165536, 65536},
+	}
+	got, err = allocSubidRange(subID, 65536, min, max)
+	if err != nil {
+		t.Errorf("AllocSubidRange(): %v", err)
+	}
+	want = append(subID, user.SubID{"sysbox", 231072, 65536})
+	compareSubidRanges(t, want, got)
+
+	// more overlapping ranges
+	subID = []user.SubID{
+		{"user1", 100000, 65536},
+		{"user2", 120000, 65536},
+		{"user3", 165536, 65536},
+	}
+	got, err = allocSubidRange(subID, 65536, min, max)
+	if err != nil {
+		t.Errorf("AllocSubidRange(): %v", err)
+	}
+	want = append(subID, user.SubID{"sysbox", 231072, 65536})
+	compareSubidRanges(t, want, got)
+
 	// empty range
 	subID = []user.SubID{}
 	got, err = allocSubidRange(subID, 65536, min, max)
@@ -129,6 +155,21 @@ func TestAllocSubidRange(t *testing.T) {
 	if err == nil {
 		t.Errorf("AllocSubidRange(): expected alloc error, got no error")
 	}
+
+	// un-sorted ranges
+	subID = []user.SubID{
+		{"user1", 100000, 65536},
+		{"user2", 231072, 65536},
+		{"user3", 165536, 65536},
+		{"user4", 362144, 65536},
+	}
+	got, err = allocSubidRange(subID, 65536, min, max)
+	if err != nil {
+		t.Errorf("AllocSubidRange(): %v", err)
+	}
+	want = append(subID, user.SubID{"sysbox", 296608, 65536})
+	compareSubidRanges(t, want, got)
+
 }
 
 func verifyFileData(path string, data []byte) error {
