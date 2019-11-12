@@ -11,6 +11,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -30,24 +31,33 @@ func allocSubidRange(subID []user.SubID, size, min, max uint64) ([]user.SubID, e
 		return subID, fmt.Errorf("invalid allocation size: %d", size)
 	}
 
+	sortedSubID := subID
+
+	// Sort the subIDs by starting range (simplifies the allocation)
+	sort.Slice(sortedSubID, func(i, j int) bool {
+		return sortedSubID[i].SubID < sortedSubID[j].SubID
+	})
+
 	holeStart = min
 
-	for _, id := range subID {
+	for _, id := range sortedSubID {
 		holeEnd = uint64(id.SubID)
-		if holeEnd-holeStart >= size {
-			subID = append(subID, user.SubID{"sysbox", int64(holeStart), int64(size)})
-			return subID, nil
+
+		if (holeEnd >= holeStart) && (holeEnd-holeStart >= size) {
+			sortedSubID = append(sortedSubID, user.SubID{"sysbox", int64(holeStart), int64(size)})
+			return sortedSubID, nil
 		}
+
 		holeStart = uint64(id.SubID + id.Count)
 	}
 
 	holeEnd = max
 	if holeEnd-holeStart < size {
-		return subID, fmt.Errorf("failed to allocate %d subids in range %d, %d", size, min, max)
+		return sortedSubID, fmt.Errorf("failed to allocate %d subids in range %d, %d", size, min, max)
 	}
 
-	subID = append(subID, user.SubID{"sysbox", int64(holeStart), int64(size)})
-	return subID, nil
+	sortedSubID = append(sortedSubID, user.SubID{"sysbox", int64(holeStart), int64(size)})
+	return sortedSubID, nil
 }
 
 func writeSubidFile(path string, subID []user.SubID) error {
@@ -70,6 +80,8 @@ func configSubidRange(path string, size, min, max uint64) error {
 		return fmt.Errorf("error parsing file %s: %s", path, err)
 	}
 
+	// Remove existing config for user sysbox
+	//
 	// TODO: this only handles zero or one entries for user "sysbox" in the subuid file;
 	// it's possible (but rare) that there are multiple such entries though.
 
