@@ -12,6 +12,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	grpc "github.com/nestybox/sysbox-ipc/sysboxMgrGrpc"
+	ipcLib "github.com/nestybox/sysbox-ipc/sysboxMgrLib"
 	intf "github.com/nestybox/sysbox-mgr/intf"
 	"github.com/nestybox/sysbox-mgr/shiftfsMgr"
 	"github.com/opencontainers/runc/libcontainer/configs"
@@ -30,6 +31,7 @@ type containerState int
 const (
 	started containerState = iota
 	stopped
+	restarted
 )
 
 type uidInfo struct {
@@ -38,7 +40,7 @@ type uidInfo struct {
 	size uint64
 }
 
-type dsPrepInfo struct {
+type mntPrepRevInfo struct {
 	path    string
 	chown   bool
 	origUid uint32
@@ -48,8 +50,8 @@ type dsPrepInfo struct {
 type containerInfo struct {
 	state        containerState
 	rootfs       string
-	dsPrep       dsPrepInfo
-	dsMount      *specs.Mount
+	mntPrepRev   []mntPrepRevInfo
+	mounts       []specs.Mount
 	uidInfo      uidInfo
 	shiftfsMarks []configs.ShiftfsMount
 }
@@ -58,6 +60,7 @@ type SysboxMgr struct {
 	grpcServer    *grpc.ServerStub
 	subidAlloc    intf.SubidAlloc
 	dsVolMgr      intf.VolMgr
+	ksVolMgr      intf.VolMgr
 	shiftfsMgr    intf.ShiftfsMgr
 	contTable     map[string]containerInfo // cont id -> cont info
 	ctLock        sync.Mutex
@@ -65,8 +68,8 @@ type SysboxMgr struct {
 	rtLock        sync.Mutex
 	rootfsMonStop chan int
 	rootfsWatcher *fsnotify.Watcher
-	dsPrepTable   map[string]string // mount source -> cont id
-	dsLock        sync.Mutex
+	mntPrepTable  map[string]string // mount source -> cont id
+	mntPrepLock   sync.Mutex
 }
 
 // newSysboxMgr creates an instance of the sysbox manager
@@ -86,6 +89,11 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		return nil, fmt.Errorf("failed to setup docker-store vol mgr: %v", err)
 	}
 
+	ksVolMgr, err := setupKsVolMgr(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to setup kubelet-store vol mgr: %v", err)
+	}
+
 	shiftfsMgr, err := shiftfsMgr.New()
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup shiftfs mgr: %v", err)
@@ -94,21 +102,22 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 	mgr := &SysboxMgr{
 		subidAlloc:    subidAlloc,
 		dsVolMgr:      dsVolMgr,
+		ksVolMgr:      ksVolMgr,
 		shiftfsMgr:    shiftfsMgr,
 		contTable:     make(map[string]containerInfo),
 		rootfsTable:   make(map[string]string),
 		rootfsMonStop: make(chan int),
-		dsPrepTable:   make(map[string]string),
+		mntPrepTable:  make(map[string]string),
 	}
 
 	cb := &grpc.ServerCallbacks{
-		Register:             mgr.register,
-		Unregister:           mgr.unregister,
-		SubidAlloc:           mgr.allocSubid,
-		ReqDockerStoreMount:  mgr.reqDockerStoreMount,
-		PrepDockerStoreMount: mgr.prepDockerStoreMount,
-		ReqShiftfsMark:       mgr.reqShiftfsMark,
-		Pause:                mgr.pause,
+		Register:       mgr.register,
+		Unregister:     mgr.unregister,
+		SubidAlloc:     mgr.allocSubid,
+		ReqMounts:      mgr.reqMounts,
+		PrepMounts:     mgr.prepMounts,
+		ReqShiftfsMark: mgr.reqShiftfsMark,
+		Pause:          mgr.pause,
 	}
 
 	mgr.grpcServer = grpc.NewServerStub(cb)
@@ -154,7 +163,9 @@ func (mgr *SysboxMgr) register(id string) error {
 	if !found {
 		// new container
 		info = containerInfo{
-			state: started,
+			state:        started,
+			mntPrepRev:   []mntPrepRevInfo{},
+			shiftfsMarks: []configs.ShiftfsMount{},
 		}
 		mgr.contTable[id] = info
 		mgr.ctLock.Unlock()
@@ -167,7 +178,7 @@ func (mgr *SysboxMgr) register(id string) error {
 		mgr.ctLock.Unlock()
 		return fmt.Errorf("redundant container registration for container %s", id)
 	}
-	info.state = started
+	info.state = restarted
 	mgr.contTable[id] = info
 	mgr.ctLock.Unlock()
 
@@ -187,6 +198,7 @@ func (mgr *SysboxMgr) register(id string) error {
 
 // Unregisters a container with sysbox-mgr
 func (mgr *SysboxMgr) unregister(id string) error {
+	var err error
 
 	// update container state
 	mgr.ctLock.Lock()
@@ -196,39 +208,50 @@ func (mgr *SysboxMgr) unregister(id string) error {
 	if !found {
 		return fmt.Errorf("can't unregister container %s; not found in container table", id)
 	}
-	if info.state != started {
+	if info.state == stopped {
 		return fmt.Errorf("redundant container unregistration for container %s", id)
 	}
 	info.state = stopped
 
 	if len(info.shiftfsMarks) != 0 {
-		if err := mgr.shiftfsMgr.Unmark(id, info.shiftfsMarks); err != nil {
+		if err = mgr.shiftfsMgr.Unmark(id, info.shiftfsMarks); err != nil {
 			return fmt.Errorf("failed to remove shiftfs marks for container %s: %s", id, err)
 		}
 		info.shiftfsMarks = []configs.ShiftfsMount{}
 	}
 
-	if info.dsPrep.chown {
-		if err := rChown(info.dsPrep.path, info.dsPrep.origUid, info.dsPrep.origGid); err != nil {
-			return fmt.Errorf("failed to reverse-chown docker-store mount source at %s: %s", info.dsPrep.path, err)
+	// revert mount prep actions
+	mgr.mntPrepLock.Lock()
+	for _, revInfo := range info.mntPrepRev {
+		if revInfo.chown {
+			if err = rChown(revInfo.path, revInfo.origUid, revInfo.origGid); err != nil {
+				mgr.mntPrepLock.Unlock()
+				return fmt.Errorf("failed to revert ownership of mount source at %s: %s", revInfo.path, err)
+			}
 		}
-	} else if info.dsMount != nil {
-		// Request docker-store volume manager to sync back contents to the container's rootfs.
-		//
-		// Note that we do this when the container is stopped, not when it's running. This
-		// means we take the performance hit on container stop. The performance hit is a
-		// function of how many changes the sys container did on its /var/lib/docker
-		// directory. If in the future we think the hit is too much, we could do the sync
-		// periodically while the container is running (e.g., using a combination of fsnotify +
-		// rsync).
-		if err := mgr.dsVolMgr.SyncOut(id); err != nil {
-			return fmt.Errorf("docker-store vol sync-out failed: %v", err)
+		delete(mgr.mntPrepTable, revInfo.path)
+	}
+	mgr.mntPrepLock.Unlock()
+
+	// Request the volume managers to sync back their contents to the container's rootfs.
+	//
+	// Note that we do this when the container is stopped, not when it's running. This
+	// means we take the performance hit on container stop. The performance hit is a
+	// function of how many changes the sys container did on the directory where the
+	// volume is mounted.  If in the future we think the hit is too much, we could do
+	// the sync periodically while the container is running (e.g., using a combination
+	// of fsnotify + rsync).
+	for _, mnt := range info.mounts {
+		switch mnt.Destination {
+		case "/var/lib/docker":
+			err = mgr.dsVolMgr.SyncOut(id)
+		case "/var/lib/kubelet":
+			err = mgr.ksVolMgr.SyncOut(id)
+		}
+		if err != nil {
+			return fmt.Errorf("sync-out for volume backing %s for container %s failed: %v", mnt.Destination, id, err)
 		}
 	}
-
-	mgr.dsLock.Lock()
-	delete(mgr.dsPrepTable, info.dsPrep.path)
-	mgr.dsLock.Unlock()
 
 	mgr.ctLock.Lock()
 	mgr.contTable[id] = info
@@ -295,9 +318,17 @@ func (mgr *SysboxMgr) removeCont(id string) {
 		return
 	}
 
-	if info.dsMount != nil {
-		if err := mgr.dsVolMgr.DestroyVol(id); err != nil {
-			logrus.Errorf("rootfsMon: failed to destroy docker-store-volume for container %s: %s", id, err)
+	for _, mnt := range info.mounts {
+		var err error
+
+		switch mnt.Destination {
+		case "/var/lib/docker":
+			err = mgr.dsVolMgr.DestroyVol(id)
+		case "/var/lib/kubelet":
+			err = mgr.ksVolMgr.DestroyVol(id)
+		}
+		if err != nil {
+			logrus.Errorf("rootfsMon: failed to destroy volume backing %s for container %s: %s", mnt.Destination, id, err)
 		}
 	}
 
@@ -314,7 +345,11 @@ func (mgr *SysboxMgr) removeCont(id string) {
 	logrus.Infof("released resources for container %s", id)
 }
 
-func (mgr *SysboxMgr) reqDockerStoreMount(id string, rootfs string, uid, gid uint32, shiftUids bool) (*specs.Mount, error) {
+func (mgr *SysboxMgr) reqMounts(id, rootfs string, uid, gid uint32, shiftUids bool, reqList []ipcLib.MountReqInfo) ([]specs.Mount, error) {
+
+	if len(reqList) == 0 {
+		return nil, fmt.Errorf("request list is empty!")
+	}
 
 	// get container info
 	mgr.ctLock.Lock()
@@ -325,26 +360,46 @@ func (mgr *SysboxMgr) reqDockerStoreMount(id string, rootfs string, uid, gid uin
 		return nil, fmt.Errorf("container %s is not registered", id)
 	}
 
-	// if this is a newly started container, setup it's docker-store mount
-	// (started or stopped containers keep their docker-store mount until removed)
-	if info.dsMount == nil {
-		m, err := mgr.dsVolMgr.CreateVol(id, rootfs, "/var/lib/docker", uid, gid, shiftUids)
+	// if this is a stopped container that is being re-started, no need to setup mounts
+	// (stopped containers keep their existing mounts until removed)
+	if info.state == restarted {
+		return info.mounts, nil
+	}
+
+	// call appropriate handlers
+	mounts := []specs.Mount{}
+	for _, req := range reqList {
+		var (
+			m   specs.Mount
+			err error
+		)
+
+		switch req.Dest {
+		case "/var/lib/docker":
+			m, err = mgr.dsVolMgr.CreateVol(id, rootfs, req.Dest, uid, gid, shiftUids, 0700)
+		case "/var/lib/kubelet":
+			m, err = mgr.ksVolMgr.CreateVol(id, rootfs, req.Dest, uid, gid, shiftUids, 0755)
+		default:
+			err = fmt.Errorf("unknown mount request type")
+		}
 		if err != nil {
 			return nil, err
 		}
+		mounts = append(mounts, m)
+	}
 
+	if len(mounts) > 0 {
 		info.rootfs = rootfs
-		info.dsMount = m
-
+		info.mounts = mounts
 		mgr.ctLock.Lock()
 		mgr.contTable[id] = info
 		mgr.ctLock.Unlock()
 	}
 
-	return info.dsMount, nil
+	return mounts, nil
 }
 
-func (mgr *SysboxMgr) prepDockerStoreMount(id string, path string, uid, gid uint32, shiftUids bool) error {
+func (mgr *SysboxMgr) prepMounts(id string, uid, gid uint32, shiftUids bool, prepList []ipcLib.MountPrepInfo) error {
 	var origUid, origGid uint32
 
 	// get container info
@@ -356,57 +411,63 @@ func (mgr *SysboxMgr) prepDockerStoreMount(id string, path string, uid, gid uint
 		return fmt.Errorf("container %s is not registered", id)
 	}
 
-	// if another sys container has the same docker-store mount source, return error (it can't be shared)
-	mgr.dsLock.Lock()
-	cid, found := mgr.dsPrepTable[path]
-	if found {
-		mgr.dsLock.Unlock()
-		return fmt.Errorf("docker-store mount source at %s is already in use by container %s", path, cid)
-	}
-	mgr.dsPrepTable[path] = id
-	mgr.dsLock.Unlock()
+	for _, prepInfo := range prepList {
+		src := prepInfo.Source
 
-	// if uid shifting is being used, modify the ownership of the mount source to uid:gid
-	if shiftUids {
-
-		// get the current uid(gid) for the docker-store mount source
-		fi, err := os.Stat(path)
-		if err != nil {
-			mgr.dsLock.Lock()
-			delete(mgr.dsPrepTable, path)
-			mgr.dsLock.Unlock()
-			return fmt.Errorf("failed to stat docker-store mount source at %s", path)
+		// if the mount is exclusive and another sys container has the same mount source, return error
+		mgr.mntPrepLock.Lock()
+		cid, found := mgr.mntPrepTable[src]
+		if found && prepInfo.Exclusive {
+			mgr.mntPrepLock.Unlock()
+			return fmt.Errorf("mount prep failed; source at %s is already in use by container %s", src, cid)
 		}
-		st, ok := fi.Sys().(*syscall.Stat_t)
-		if !ok {
-			mgr.dsLock.Lock()
-			delete(mgr.dsPrepTable, path)
-			mgr.dsLock.Unlock()
-			return fmt.Errorf("failed to convert to syscall.Stat_t")
+		mgr.mntPrepTable[src] = id
+		mgr.mntPrepLock.Unlock()
+
+		// if uid shifting is enabled, modify the ownership of the mount source to uid:gid
+		if shiftUids {
+
+			// get the current uid(gid) for the mount source
+			fi, err := os.Stat(src)
+			if err != nil {
+				mgr.mntPrepLock.Lock()
+				delete(mgr.mntPrepTable, src)
+				mgr.mntPrepLock.Unlock()
+				return fmt.Errorf("failed to stat mount source at %s", src)
+			}
+
+			st, ok := fi.Sys().(*syscall.Stat_t)
+			if !ok {
+				mgr.mntPrepLock.Lock()
+				delete(mgr.mntPrepTable, src)
+				mgr.mntPrepLock.Unlock()
+				return fmt.Errorf("failed to convert to syscall.Stat_t")
+			}
+
+			origUid = st.Uid
+			origGid = st.Gid
+
+			if err := rChown(src, uid, gid); err != nil {
+				mgr.mntPrepLock.Lock()
+				delete(mgr.mntPrepTable, src)
+				mgr.mntPrepLock.Unlock()
+				return fmt.Errorf("failed to chown mount source at %s: %s", src, err)
+			}
 		}
-		origUid = st.Uid
-		origGid = st.Gid
 
-		// modify the docker-store mount ownership to match the sys container's root user-ID
-		if err := rChown(path, uid, gid); err != nil {
-			mgr.dsLock.Lock()
-			delete(mgr.dsPrepTable, path)
-			mgr.dsLock.Unlock()
-			return fmt.Errorf("failed to chown docker-store mount source at %s: %s", path, err)
+		// store the prep info so we can revert it when the container is stopped
+		revInfo := mntPrepRevInfo{
+			path:    src,
+			chown:   shiftUids,
+			origUid: origUid,
+			origGid: origGid,
 		}
-	}
+		info.mntPrepRev = append(info.mntPrepRev, revInfo)
 
-	// store the prep info so we can revert it when the container is stopped
-	info.dsPrep = dsPrepInfo{
-		path:    path,
-		chown:   shiftUids,
-		origUid: origUid,
-		origGid: origGid,
+		mgr.ctLock.Lock()
+		mgr.contTable[id] = info
+		mgr.ctLock.Unlock()
 	}
-
-	mgr.ctLock.Lock()
-	mgr.contTable[id] = info
-	mgr.ctLock.Unlock()
 
 	return nil
 }
@@ -454,8 +515,6 @@ func (mgr *SysboxMgr) reqShiftfsMark(id string, rootfs string, mounts []configs.
 	}
 
 	if len(info.shiftfsMarks) == 0 {
-		info.shiftfsMarks = []configs.ShiftfsMount{}
-
 		rootfsMnt := configs.ShiftfsMount{
 			Source:   rootfs,
 			Readonly: false,
@@ -479,16 +538,26 @@ func (mgr *SysboxMgr) reqShiftfsMark(id string, rootfs string, mounts []configs.
 func (mgr *SysboxMgr) pause(id string) error {
 
 	mgr.ctLock.Lock()
-	_, found := mgr.contTable[id]
+	info, found := mgr.contTable[id]
 	mgr.ctLock.Unlock()
 
 	if !found {
 		return fmt.Errorf("can't pause container %s; not found in container table", id)
 	}
 
-	// Request docker-store volume manager to sync back contents to the container's rootfs
-	if err := mgr.dsVolMgr.SyncOut(id); err != nil {
-		return fmt.Errorf("docker-store vol sync-out failed: %v", err)
+	// Request all volume managers to sync back contents to the container's rootfs
+	for _, mnt := range info.mounts {
+		var err error
+
+		switch mnt.Destination {
+		case "/var/lib/docker":
+			err = mgr.dsVolMgr.SyncOut(id)
+		case "/var/lib/kubelet":
+			err = mgr.ksVolMgr.SyncOut(id)
+		}
+		if err != nil {
+			return fmt.Errorf("sync-out for volume backing %s for container %s failed: %v", mnt.Destination, id, err)
+		}
 	}
 
 	return nil

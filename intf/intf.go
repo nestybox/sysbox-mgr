@@ -9,6 +9,8 @@
 package intf
 
 import (
+	"os"
+
 	"github.com/opencontainers/runc/libcontainer/configs"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 )
@@ -31,7 +33,8 @@ type SubidAlloc interface {
 }
 
 // The VolMgr interface defines the interface exposed by the sysbox-mgr entities that
-// manage the creation of volumes for the sys container.
+// manage the creation of volumes on the host that are bind-mounted into the sys
+// container.
 type VolMgr interface {
 
 	// Creates a volume for the sys container with the given 'id'. This function
@@ -40,7 +43,8 @@ type VolMgr interface {
 	// 'mountpoint' is the container's mountpoint (relative to it's rootfs)
 	// 'uid' and 'gid' are the uid(gid) of the container root process in the host's namespace.
 	// 'shiftUids' indicates if sysbox-runc is using uid-shifting for the container.
-	CreateVol(id, rootfs, mountpoint string, uid, gid uint32, shiftUids bool) (*specs.Mount, error)
+	// 'perm' indicates the permissions for the created volume.
+	CreateVol(id, rootfs, mountpoint string, uid, gid uint32, shiftUids bool, perm os.FileMode) (specs.Mount, error)
 
 	// Destroys a volume for the container with the given 'id'.
 	DestroyVol(id string) error

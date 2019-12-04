@@ -2,7 +2,7 @@
 // Copyright: (C) 2019 Nestybox Inc.  All rights reserved.
 //
 
-package dsVolMgr
+package volMgr
 
 import (
 	"fmt"
@@ -22,14 +22,12 @@ func init() {
 }
 
 func setupTest() (string, string, error) {
-	checkUnsupportedFs = false
-
-	hostDir, err := ioutil.TempDir("", "dsMountMgrTest-docker")
+	hostDir, err := ioutil.TempDir("", "volMgrTest-host")
 	if err != nil {
 		return "", "", err
 	}
 
-	rootfs, err := ioutil.TempDir("", "dsMountMgrTest-rootfs")
+	rootfs, err := ioutil.TempDir("", "volMgrTest-rootfs")
 	if err != nil {
 		return "", "", err
 	}
@@ -109,7 +107,7 @@ func equalStrings(a, b []string) bool {
 	return true
 }
 
-func equalMount(a, b *specs.Mount) bool {
+func equalMount(a, b specs.Mount) bool {
 	if a.Source != b.Source ||
 		a.Destination != b.Destination ||
 		a.Type != b.Type ||
@@ -120,27 +118,27 @@ func equalMount(a, b *specs.Mount) bool {
 	return true
 }
 
-func testCreateVolWork(id, hostDir, rootfs, mountpoint string, uid, gid uint32, shiftUids bool) (*specs.Mount, error) {
-	want := &specs.Mount{
+func testCreateVolWork(id, hostDir, rootfs, mountpoint string, uid, gid uint32, shiftUids bool) (specs.Mount, error) {
+	want := specs.Mount{
 		Source:      filepath.Join(hostDir, id),
 		Destination: mountpoint,
 		Type:        "bind",
 		Options:     []string{"rbind", "rprivate"},
 	}
 
-	dsm, err := New(hostDir)
+	mgr, err := New(hostDir)
 	if err != nil {
-		return nil, fmt.Errorf("New(%v) returned %v", hostDir, err)
+		return specs.Mount{}, fmt.Errorf("New(%v) returned %v", hostDir, err)
 	}
 
-	got, err := dsm.CreateVol(id, rootfs, mountpoint, uid, gid, shiftUids)
+	got, err := mgr.CreateVol(id, rootfs, mountpoint, uid, gid, shiftUids)
 	if err != nil {
 		return got, fmt.Errorf("CreateVol() returned %v", err)
 	}
 
-	// check that the dsVolMgr volTable entry got created
-	mgr := dsm.(*mgr)
-	if _, found := mgr.volTable[id]; !found {
+	// check that the volMgr volTable entry got created
+	vmgr := mgr.(*vmgr)
+	if _, found := vmgr.volTable[id]; !found {
 		return got, fmt.Errorf("CreateVol() did not create entry in volTable")
 	}
 
@@ -178,7 +176,7 @@ func TestDestroyVol(t *testing.T) {
 	}
 	defer cleanupTest(hostDir, rootfs)
 
-	dsm, err := New(hostDir)
+	mgr, err := New(hostDir)
 	if err != nil {
 		t.Errorf("New(%v) returned %v", hostDir, err)
 	}
@@ -188,23 +186,23 @@ func TestDestroyVol(t *testing.T) {
 	uid := uint32(os.Geteuid())
 	gid := uint32(os.Getegid())
 
-	_, err = dsm.CreateVol(id, rootfs, mountpoint, uid, gid, false)
+	_, err = mgr.CreateVol(id, rootfs, mountpoint, uid, gid, false)
 	if err != nil {
 		t.Errorf("CreateVol() returned %v", err)
 	}
 
-	// check that the dsVolMgr volTable entry got created
-	mgr := dsm.(*mgr)
-	if _, found := mgr.volTable[id]; !found {
+	// check that the volMgr volTable entry got created
+	vmgr := mgr.(*vmgr)
+	if _, found := vmgr.volTable[id]; !found {
 		t.Errorf("CreateVol() did not create entry in volTable")
 	}
 
-	if err := dsm.DestroyVol(id); err != nil {
+	if err := mgr.DestroyVol(id); err != nil {
 		t.Errorf("DestroyVol(%v) returned %v", id, err)
 	}
 
-	// check that the dsVolMgr volTable entry got removed
-	if _, found := mgr.volTable[id]; found {
+	// check that the volMgr volTable entry got removed
+	if _, found := vmgr.volTable[id]; found {
 		t.Errorf("CreateVol() did not destroy entry in volTable")
 	}
 
@@ -257,13 +255,13 @@ func testSyncInWork(t *testing.T, shiftUids bool) {
 		t.Errorf("set ownership failed: %s", err)
 	}
 
-	// create the docker-store volume; this triggers the sync-in automatically.
-	dsm, err := New(hostDir)
+	// create the volume mgr; this triggers the sync-in automatically.
+	mgr, err := New(hostDir)
 	if err != nil {
 		t.Errorf("New(%v) returned %v", hostDir, err)
 	}
 
-	_, err = dsm.CreateVol(id, rootfs, mountpoint, uid, gid, shiftUids)
+	_, err = mgr.CreateVol(id, rootfs, mountpoint, uid, gid, shiftUids)
 	if err != nil {
 		t.Errorf("CreateVol() returned %v", err)
 	}
@@ -325,8 +323,8 @@ func testSyncOutWork(t *testing.T, shiftUids bool) {
 	}
 	defer cleanupTest(hostDir, rootfs)
 
-	// create the docker-store volume
-	dsm, err := New(hostDir)
+	// create the volume mgr
+	mgr, err := New(hostDir)
 	if err != nil {
 		t.Errorf("New(%v) returned %v", hostDir, err)
 	}
@@ -336,19 +334,19 @@ func testSyncOutWork(t *testing.T, shiftUids bool) {
 	uid = 231072
 	gid = 231072
 
-	_, err = dsm.CreateVol(id, rootfs, mountpoint, uid, gid, shiftUids)
+	_, err = mgr.CreateVol(id, rootfs, mountpoint, uid, gid, shiftUids)
 	if err != nil {
 		t.Errorf("CreateVol() returned %v", err)
 	}
 
-	// Add some files to the docker-store volume
+	// Add some files to the volume mgr
 	volPath := filepath.Join(hostDir, id)
 	files := []string{"testdir1/a/b/c/d/file0", "testdir1/a/file1", "testdir3/a/b/file2"}
 	if err := populateDir(volPath, files); err != nil {
 		t.Errorf("failed to populate vol at path %s: %s", volPath, err)
 	}
 
-	// set the ownerships on all files in the docker-store vol to uid:gid
+	// set the ownerships on all files in the vol to uid:gid
 	err = filepath.Walk(volPath, func(path string, fi os.FileInfo, err error) error {
 		if err == nil {
 			if err := os.Chown(path, int(uid), int(gid)); err != nil {
@@ -361,8 +359,8 @@ func testSyncOutWork(t *testing.T, shiftUids bool) {
 		t.Errorf("failed to change ownership on %s: %s", volPath, err)
 	}
 
-	// sync-out the docker-store vol to the rootfs; this will create the target dir automatically
-	if err := dsm.SyncOut(id); err != nil {
+	// sync-out the vol to the rootfs; this will create the target dir automatically
+	if err := mgr.SyncOut(id); err != nil {
 		t.Errorf("sync-out failed: %s", err)
 	}
 
@@ -416,8 +414,8 @@ func TestSyncInSkip(t *testing.T) {
 	}
 	defer cleanupTest(hostDir, rootfs)
 
-	// create the docker-store volume
-	dsm, err := New(hostDir)
+	// create the volMgr
+	mgr, err := New(hostDir)
 	if err != nil {
 		t.Errorf("New(%v) returned %v", hostDir, err)
 	}
@@ -427,7 +425,7 @@ func TestSyncInSkip(t *testing.T) {
 	uid := uint32(231072)
 	gid := uint32(231072)
 
-	_, err = dsm.CreateVol(id, rootfs, mountpoint, uid, gid, false)
+	_, err = mgr.CreateVol(id, rootfs, mountpoint, uid, gid, false)
 	if err != nil {
 		t.Errorf("CreateVol() returned %v", err)
 	}
@@ -452,8 +450,8 @@ func TestSyncOutSkip(t *testing.T) {
 	}
 	defer cleanupTest(hostDir, rootfs)
 
-	// create the docker-store volume
-	dsm, err := New(hostDir)
+	// create the volMgr
+	mgr, err := New(hostDir)
 	if err != nil {
 		t.Errorf("New(%v) returned %v", hostDir, err)
 	}
@@ -463,13 +461,13 @@ func TestSyncOutSkip(t *testing.T) {
 	uid := uint32(231072)
 	gid := uint32(231072)
 
-	_, err = dsm.CreateVol(id, rootfs, mountpoint, uid, gid, false)
+	_, err = mgr.CreateVol(id, rootfs, mountpoint, uid, gid, false)
 	if err != nil {
 		t.Errorf("CreateVol() returned %v", err)
 	}
 
 	// this sync-out should be a "no-op" since the volume is empty
-	if err := dsm.SyncOut(id); err != nil {
+	if err := mgr.SyncOut(id); err != nil {
 		t.Errorf("sync-out failed: %s", err)
 	}
 

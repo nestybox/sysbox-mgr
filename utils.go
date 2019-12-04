@@ -14,15 +14,19 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 
-	"github.com/nestybox/sysbox-mgr/dsVolMgr"
 	intf "github.com/nestybox/sysbox-mgr/intf"
 	"github.com/nestybox/sysbox-mgr/lib/dockerUtils"
 	"github.com/nestybox/sysbox-mgr/subidAlloc"
+	"github.com/nestybox/sysbox-mgr/volMgr"
 	"github.com/opencontainers/runc/libcontainer/user"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
+	"golang.org/x/sys/unix"
 )
+
+const SHIFTFS_MAGIC int64 = 0x6a656a62
 
 func allocSubidRange(subID []user.SubID, size, min, max uint64) ([]user.SubID, error) {
 	var holeStart, holeEnd uint64
@@ -211,15 +215,63 @@ func setupSubidAlloc(ctx *cli.Context) (intf.SubidAlloc, error) {
 }
 
 func setupDsVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
+
+	var statfs syscall.Statfs_t
+
 	hostDir := filepath.Join(sysboxLibDir, "docker")
 	if err := os.MkdirAll(hostDir, 0700); err != nil {
 		return nil, fmt.Errorf("failed to create %v: %v", hostDir, err)
 	}
-	ds, err := dsVolMgr.New(hostDir)
-	if err != nil {
-		return nil, err
+
+	// The sys container's /var/lib/docker directory can't be bind-mounted on the following
+	// filesystems, as docker inside the sys container uses overlayfs for its images and
+	// overlayfs can't be mounted on top of these.
+
+	unsupportedFs := map[string]int64{
+		"tmpfs":     unix.TMPFS_MAGIC,
+		"overlayfs": unix.OVERLAYFS_SUPER_MAGIC,
+		"shiftfs":   SHIFTFS_MAGIC,
 	}
-	return ds, nil
+
+	if err := syscall.Statfs(hostDir, &statfs); err != nil {
+		return nil, fmt.Errorf("failed to find filesystem info for %s", hostDir)
+	}
+
+	for name, magic := range unsupportedFs {
+		if statfs.Type == magic {
+			return nil, fmt.Errorf("host dir for docker store (%s) can't be on %v", hostDir, name)
+		}
+	}
+
+	return volMgr.New(hostDir)
+}
+
+func setupKsVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
+
+	var statfs syscall.Statfs_t
+
+	hostDir := filepath.Join(sysboxLibDir, "kubelet")
+	if err := os.MkdirAll(hostDir, 0700); err != nil {
+		return nil, fmt.Errorf("failed to create %v: %v", hostDir, err)
+	}
+
+	// The sys container's /var/lib/kubelet directory can't be bind-mounted on the following
+	// filesystems, as kubelet inside the sys container does not support them.
+	unsupportedFs := map[string]int64{
+		"shiftfs": SHIFTFS_MAGIC,
+	}
+
+	if err := syscall.Statfs(hostDir, &statfs); err != nil {
+		return nil, fmt.Errorf("failed to find filesystem info for %s", hostDir)
+	}
+
+	for name, magic := range unsupportedFs {
+		if statfs.Type == magic {
+			return nil, fmt.Errorf("host dir for kubelet store (%s) can't be on %v", hostDir, name)
+		}
+	}
+
+	return volMgr.New(hostDir)
 }
 
 func setupWorkDirs() error {
