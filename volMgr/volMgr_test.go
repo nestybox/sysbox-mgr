@@ -131,7 +131,7 @@ func testCreateVolWork(id, hostDir, rootfs, mountpoint string, uid, gid uint32, 
 		return specs.Mount{}, fmt.Errorf("New(%v) returned %v", hostDir, err)
 	}
 
-	got, err := mgr.CreateVol(id, rootfs, mountpoint, uid, gid, shiftUids)
+	got, err := mgr.CreateVol(id, rootfs, mountpoint, uid, gid, shiftUids, 0700)
 	if err != nil {
 		return got, fmt.Errorf("CreateVol() returned %v", err)
 	}
@@ -144,7 +144,7 @@ func testCreateVolWork(id, hostDir, rootfs, mountpoint string, uid, gid uint32, 
 
 	// check that CreateVol returned the expected mount
 	if !equalMount(got, want) {
-		return got, fmt.Errorf("CreateVol(%v, %v, %v, %v, %v) returned %v, want %v", id, rootfs, mountpoint, uid, gid, got, want)
+		return got, fmt.Errorf("CreateVol(%v, %v, %v, %v, %v, 0700) returned %v, want %v", id, rootfs, mountpoint, uid, gid, got, want)
 	}
 
 	return got, nil
@@ -186,7 +186,7 @@ func TestDestroyVol(t *testing.T) {
 	uid := uint32(os.Geteuid())
 	gid := uint32(os.Getegid())
 
-	_, err = mgr.CreateVol(id, rootfs, mountpoint, uid, gid, false)
+	_, err = mgr.CreateVol(id, rootfs, mountpoint, uid, gid, false, 0700)
 	if err != nil {
 		t.Errorf("CreateVol() returned %v", err)
 	}
@@ -261,7 +261,7 @@ func testSyncInWork(t *testing.T, shiftUids bool) {
 		t.Errorf("New(%v) returned %v", hostDir, err)
 	}
 
-	_, err = mgr.CreateVol(id, rootfs, mountpoint, uid, gid, shiftUids)
+	_, err = mgr.CreateVol(id, rootfs, mountpoint, uid, gid, shiftUids, 0700)
 	if err != nil {
 		t.Errorf("CreateVol() returned %v", err)
 	}
@@ -334,7 +334,7 @@ func testSyncOutWork(t *testing.T, shiftUids bool) {
 	uid = 231072
 	gid = 231072
 
-	_, err = mgr.CreateVol(id, rootfs, mountpoint, uid, gid, shiftUids)
+	_, err = mgr.CreateVol(id, rootfs, mountpoint, uid, gid, shiftUids, 0700)
 	if err != nil {
 		t.Errorf("CreateVol() returned %v", err)
 	}
@@ -425,7 +425,7 @@ func TestSyncInSkip(t *testing.T) {
 	uid := uint32(231072)
 	gid := uint32(231072)
 
-	_, err = mgr.CreateVol(id, rootfs, mountpoint, uid, gid, false)
+	_, err = mgr.CreateVol(id, rootfs, mountpoint, uid, gid, false, 0700)
 	if err != nil {
 		t.Errorf("CreateVol() returned %v", err)
 	}
@@ -461,7 +461,7 @@ func TestSyncOutSkip(t *testing.T) {
 	uid := uint32(231072)
 	gid := uint32(231072)
 
-	_, err = mgr.CreateVol(id, rootfs, mountpoint, uid, gid, false)
+	_, err = mgr.CreateVol(id, rootfs, mountpoint, uid, gid, false, 0700)
 	if err != nil {
 		t.Errorf("CreateVol() returned %v", err)
 	}
