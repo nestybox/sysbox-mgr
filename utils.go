@@ -289,13 +289,8 @@ func setupWorkDirs() error {
 
 func cleanupWorkDirs() error {
 
-	if _, err := os.Stat(sysboxRunDir); err == nil {
-		if err := removeDirContents(sysboxRunDir); err != nil {
-			return err
-		}
-	} else if !os.IsNotExist(err) {
-		return err
-	}
+       // File corresponding to the GRPC unix-socket will be eliminated as part
+       // of the grpcServer initialization logic.
 
 	if _, err := os.Stat(sysboxLibDir); err == nil {
 		if err := removeDirContents(sysboxLibDir); err != nil {
