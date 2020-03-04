@@ -64,6 +64,10 @@ func main() {
 			Value: subidRangeSize,
 			Usage: "subid allocator range (must be a multiple of 64K and <= 4G)",
 		},
+		cli.BoolFlag{
+			Name:  "no-inner-docker-image-sharing",
+			Usage: "Disable copy-on-write sharing of inner docker images between system containers; may increase container startup time and storage overhead",
+		},
 	}
 
 	// show-version specialization.

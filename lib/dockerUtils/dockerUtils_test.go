@@ -1,45 +1,75 @@
 //
-// Copyright: (C) 2019 Nestybox Inc.  All rights reserved.
+// Copyright: (C) 2019 - 2020 Nestybox Inc.  All rights reserved.
 //
 
 package dockerUtils
 
 import (
-	"io/ioutil"
-	"os"
-	"path/filepath"
+	"bytes"
+	"fmt"
+	"os/exec"
+	"strings"
 	"testing"
 )
 
-func TestParseDataRoot(t *testing.T) {
-	tmpDir, err := ioutil.TempDir("", "TestParseDataRoot")
-	defer os.RemoveAll(tmpDir)
-
-	filename := filepath.Join(tmpDir, "daemon.json")
-
-	var data = []byte(`{"data-root":"/some/dir", "debug":false, "userns-remap":"sysbox"}`)
-	err = ioutil.WriteFile(filename, data, 0644)
+func TestDockerUtils(t *testing.T) {
+	docker, err := DockerConnect()
 	if err != nil {
-		t.Errorf("writeFile failed: %s", err)
+		t.Fatalf("DockerConnect() failed: %v", err)
 	}
 
-	dataRoot := parseDataRoot(filename)
+	dataRoot := docker.GetDataRoot()
+	if dataRoot != "/var/lib/docker" {
+		t.Errorf("docker.GetDataRoot(): want /var/lib/docker; got %s", dataRoot)
+	}
 
-	if dataRoot != "/some/dir" {
-		t.Errorf("parseDataRoot(): want \"/some/dir\", got %s", dataRoot)
+	id, err := testStartContainer()
+	if err != nil {
+		t.Fatalf("Failed to start test container: %v", err)
+	}
+
+	if !docker.IsDockerContainer(id) {
+		t.Errorf("IsDockerContainer(%s) failed", id)
+	}
+
+	if _, err := docker.GetContainer(id); err != nil {
+		t.Errorf("GetContainer(%s) failed: %v", id, err)
+	}
+
+	if err := testStopContainer(id); err != nil {
+		t.Errorf("Failed to stop test container: %v", err)
 	}
 }
 
-func TestIsDockerContainer(t *testing.T) {
-	dockerDataRoot = "/some/dir"
+func testStartContainer() (string, error) {
+	var cmd *exec.Cmd
+	var stdout, stderr bytes.Buffer
 
-	rootfs := "/some/dir/container-id"
-	if !IsDockerContainer(rootfs) {
-		t.Errorf("IsDockerContainer(): want true, got false")
+	cmd = exec.Command("docker", "run", "-d", "alpine", "tail", "-f", "/dev/null")
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if err != nil {
+		return "", fmt.Errorf("failed to start test container: %s %s\n", stdout.String(), stderr.String())
 	}
 
-	rootfs = "/some/other/dir/container-id"
-	if IsDockerContainer(rootfs) {
-		t.Errorf("IsDockerContainer(): want false, got true")
+	id := strings.TrimSuffix(stdout.String(), "\n")
+	return id, nil
+}
+
+func testStopContainer(id string) error {
+	var cmd *exec.Cmd
+	var stdout, stderr bytes.Buffer
+
+	cmd = exec.Command("docker", "stop", "-t0", id)
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if err != nil {
+		return fmt.Errorf("failed to stop test container: %s %s\n", stdout.String(), stderr.String())
 	}
+
+	return nil
 }

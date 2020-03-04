@@ -62,7 +62,7 @@ func (sm *mgr) Mark(id string, mounts []configs.ShiftfsMount) error {
 				return fmt.Errorf("error while checking for existing shiftfs mount on %s: %v", m.Source, err)
 			}
 			if mounted {
-				logrus.Debugf("skipped shiftfs mark on %s (already mounted by some other entity)", m.Source)
+				logrus.Debugf("skipped shiftfs mark on %s (already mounted)", m.Source)
 				continue
 			}
 

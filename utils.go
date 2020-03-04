@@ -16,6 +16,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/nestybox/sysbox-mgr/dockerVolMgr"
 	intf "github.com/nestybox/sysbox-mgr/intf"
 	"github.com/nestybox/sysbox-mgr/lib/dockerUtils"
 	"github.com/nestybox/sysbox-mgr/subidAlloc"
@@ -215,7 +216,6 @@ func setupSubidAlloc(ctx *cli.Context) (intf.SubidAlloc, error) {
 }
 
 func setupDsVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
-
 	var statfs syscall.Statfs_t
 
 	hostDir := filepath.Join(sysboxLibDir, "docker")
@@ -223,9 +223,9 @@ func setupDsVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
 		return nil, fmt.Errorf("failed to create %v: %v", hostDir, err)
 	}
 
-	// The sys container's /var/lib/docker directory can't be bind-mounted on the following
-	// filesystems, as docker inside the sys container uses overlayfs for its images and
-	// overlayfs can't be mounted on top of these.
+	// The host dir that is bind-mounted into the sys container's /var/lib/docker can't be
+	// on the following filesystems, as docker inside the sys container uses overlayfs for
+	// its images and overlayfs can't be mounted on top of these.
 
 	unsupportedFs := map[string]int64{
 		"tmpfs":     unix.TMPFS_MAGIC,
@@ -243,7 +243,9 @@ func setupDsVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
 		}
 	}
 
-	return volMgr.New(hostDir)
+	innerImgSharing := !ctx.GlobalBool("no-inner-docker-image-sharing")
+
+	return dockerVolMgr.New(hostDir, innerImgSharing)
 }
 
 func setupKsVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
@@ -255,8 +257,9 @@ func setupKsVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
 		return nil, fmt.Errorf("failed to create %v: %v", hostDir, err)
 	}
 
-	// The sys container's /var/lib/kubelet directory can't be bind-mounted on the following
-	// filesystems, as kubelet inside the sys container does not support them.
+	// The host dir that is bind-mounted into the sys container's /var/lib/kubelet
+	// directory can't be on the following filesystems, as kubelet inside the sys
+	// container does not support them.
 	unsupportedFs := map[string]int64{
 		"shiftfs": SHIFTFS_MAGIC,
 	}
@@ -289,8 +292,10 @@ func setupWorkDirs() error {
 
 func cleanupWorkDirs() error {
 
-       // File corresponding to the GRPC unix-socket will be eliminated as part
-       // of the grpcServer initialization logic.
+	// TODO: ask each volMgr to cleanup it's work dir.
+
+	// File corresponding to the GRPC unix-socket will be eliminated as part
+	// of the grpcServer initialization logic.
 
 	if _, err := os.Stat(sysboxLibDir); err == nil {
 		if err := removeDirContents(sysboxLibDir); err != nil {
@@ -316,22 +321,6 @@ func removeDirContents(path string) error {
 	return nil
 }
 
-func sanitizeRootfs(rootfs string) string {
-	// Sanitize the given container's rootfs. Specifically, in docker containers on
-	// overlayfs the rootfs is usually "/var/lib/docker/overlay2/<container-id>/merged",
-	// but docker removes the "merged" directory during container stop and re-creates it
-	// during container start. Thus, we can't rely on the presence of "merged" to determine
-	// if a container was stopped or removed. Instead, we use the rootfs path up to
-	// <container-id>.
-	if dockerUtils.IsDockerContainer(rootfs) {
-		if strings.Contains(rootfs, "overlay2") && filepath.Base(rootfs) == "merged" {
-			rootfs = filepath.Dir(rootfs)
-		}
-	}
-
-	return rootfs
-}
-
 func rChown(path string, uid, gid uint32) error {
 	return filepath.Walk(path, func(name string, info os.FileInfo, err error) error {
 		if err == nil {
@@ -339,4 +328,23 @@ func rChown(path string, uid, gid uint32) error {
 		}
 		return err
 	})
+}
+
+// Sanitize the given container's rootfs.
+func sanitizeRootfs(id, rootfs string) string {
+
+	// Docker containers on overlayfs have a rootfs under "/var/lib/docker/overlay2/<container-id>/merged".
+	// However, Docker removes the "merged" directory during container stop and re-creates
+	// it during container start. Thus, we can't rely on the presence of "merged" to
+	// determine if a container was stopped or removed. Instead, we use the rootfs path up
+	// to <container-id>.
+
+	docker, err := dockerUtils.DockerConnect()
+	if err == nil && docker.IsDockerContainer(id) {
+		if strings.Contains(rootfs, "overlay2") && filepath.Base(rootfs) == "merged" {
+			return filepath.Dir(rootfs)
+		}
+	}
+
+	return rootfs
 }

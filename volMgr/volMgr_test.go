@@ -118,33 +118,47 @@ func equalMount(a, b specs.Mount) bool {
 	return true
 }
 
-func testCreateVolWork(id, hostDir, rootfs, mountpoint string, uid, gid uint32, shiftUids bool) (specs.Mount, error) {
-	want := specs.Mount{
-		Source:      filepath.Join(hostDir, id),
-		Destination: mountpoint,
-		Type:        "bind",
-		Options:     []string{"rbind", "rprivate"},
+func equalMountSlice(a, b []specs.Mount) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if !equalMount(a[i], b[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func testCreateVolWork(id, hostDir, rootfs, mountpoint string, uid, gid uint32, shiftUids bool) ([]specs.Mount, error) {
+	want := []specs.Mount{
+		{
+			Source:      filepath.Join(hostDir, id),
+			Destination: mountpoint,
+			Type:        "bind",
+			Options:     []string{"rbind", "rprivate"},
+		},
 	}
 
 	mgr, err := New(hostDir)
 	if err != nil {
-		return specs.Mount{}, fmt.Errorf("New(%v) returned %v", hostDir, err)
+		return nil, fmt.Errorf("New(%v) returned %v", hostDir, err)
 	}
 
 	got, err := mgr.CreateVol(id, rootfs, mountpoint, uid, gid, shiftUids, 0700)
 	if err != nil {
-		return got, fmt.Errorf("CreateVol() returned %v", err)
+		return nil, fmt.Errorf("CreateVol() returned %v", err)
 	}
 
 	// check that the volMgr volTable entry got created
 	vmgr := mgr.(*vmgr)
 	if _, found := vmgr.volTable[id]; !found {
-		return got, fmt.Errorf("CreateVol() did not create entry in volTable")
+		return nil, fmt.Errorf("CreateVol() did not create entry in volTable")
 	}
 
 	// check that CreateVol returned the expected mount
-	if !equalMount(got, want) {
-		return got, fmt.Errorf("CreateVol(%v, %v, %v, %v, %v, 0700) returned %v, want %v", id, rootfs, mountpoint, uid, gid, got, want)
+	if !equalMountSlice(got, want) {
+		return nil, fmt.Errorf("CreateVol(%v, %v, %v, %v, %v, 0700) returned %v, want %v", id, rootfs, mountpoint, uid, gid, got, want)
 	}
 
 	return got, nil
