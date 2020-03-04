@@ -1,54 +1,77 @@
 //
-// Copyright: (C) 2019 Nestybox Inc.  All rights reserved.
+// Copyright: (C) 2019 - 2020 Nestybox Inc.  All rights reserved.
 //
-
-// Docker-related utilities
 
 package dockerUtils
 
 import (
-	"encoding/json"
-	"io/ioutil"
-	"os"
-	"strings"
+	"context"
+	"fmt"
+
+	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/client"
 )
 
-var daemonCfgFile string = "/etc/docker/daemon.json"
-var dockerDataRoot string
-
-func init() {
-	dockerDataRoot = parseDataRoot(daemonCfgFile)
+type DockerContainer struct {
+	ImageID string
 }
 
-func parseDataRoot(daemonCfg string) string {
-	dr := "/var/lib/docker"
+type Docker struct {
+	cli      *client.Client
+	dataRoot string
+}
 
-	file, err := os.Open(daemonCfg)
+func DockerConnect() (*Docker, error) {
+
+	cli, err := client.NewEnvClient()
 	if err != nil {
-		return dr
-	}
-	defer file.Close()
-
-	type dockerdCfg struct {
-		DataRoot string `json:"data-root"`
+		return nil, fmt.Errorf("Failed to connect to Docker API: %v", err)
 	}
 
-	var cfg dockerdCfg
-
-	byteValue, _ := ioutil.ReadAll(file)
-	json.Unmarshal(byteValue, &cfg)
-
-	if cfg.DataRoot != "" {
-		dr = cfg.DataRoot
+	info, err := cli.Info(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("Failed to retrieve Docker info: %v", err)
 	}
 
-	return dr
+	return &Docker{
+		cli:      cli,
+		dataRoot: info.DockerRootDir,
+	}, nil
 }
 
-func GetDataRoot() string {
-	return dockerDataRoot
+func (d *Docker) GetDataRoot() string {
+	return d.dataRoot
 }
 
-func IsDockerContainer(rootfs string) bool {
-	return strings.Contains(rootfs, dockerDataRoot)
+func (d *Docker) GetContainer(containerID string) (DockerContainer, error) {
+	var dc DockerContainer
+
+	filter := filters.NewArgs()
+	filter.Add("id", containerID)
+
+	cli := d.cli
+
+	containers, err := cli.ContainerList(context.Background(), types.ContainerListOptions{
+		All:     true, // required since container may not yet be running
+		Filters: filter,
+	})
+	if err != nil {
+		return dc, err
+	}
+
+	if len(containers) == 0 {
+		return dc, fmt.Errorf("not found")
+	} else if len(containers) > 1 {
+		return dc, fmt.Errorf("more than one container matches ID %s: %v", containerID, containers)
+	}
+
+	dc.ImageID = containers[0].ImageID
+
+	return dc, nil
+}
+
+func (d *Docker) IsDockerContainer(id string) bool {
+	_, err := d.GetContainer(id)
+	return err == nil
 }

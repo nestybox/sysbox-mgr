@@ -2,17 +2,16 @@
 // Copyright: (C) 2019 Nestybox Inc.  All rights reserved.
 //
 
-// The volume manager creates and removes a directory on the host that is bind-mounted
-// into the sys container, typically to overcome problems that arise if those directories
-// were to be on the sys container's rootfs (which typically uses overlayfs or
-// shiftfs-on-overlayfs mounts when uid shifting is enabled). The bind-mount overcomes
-// these problems since the source of the mount is a directory that is on the host's
-// filesystem (typically ext4).
+// The volume manager manages a directory on the host that is bind-mounted into the sys
+// container, typically to overcome problems that arise if those directories were to be on
+// the sys container's rootfs (which typically uses overlayfs or shiftfs-on-overlayfs
+// mounts when uid shifting is enabled). The bind-mount overcomes these problems since the
+// source of the mount is a directory that is on the host's filesystem (typically ext4).
 //
-// The volume manager takes care of ensuring that the newly created host directory
-// has correct ownership to allow sys container root processes to access it, and
-// also handles copying contents from the sys container to the bind-mount source
-// and vice-versa when the container is started, stopped, or paused.
+// The volume manager takes care of ensuring that the backing host directory has correct
+// ownership to allow sys container root processes to access it, and also handles copying
+// contents from the sys container to the bind-mount source and vice-versa when the
+// container is started, stopped, or paused.
 
 package volMgr
 
@@ -56,22 +55,21 @@ func New(hostDir string) (intf.VolMgr, error) {
 }
 
 // Implements intf.VolMgr.CreateVol
-func (m *vmgr) CreateVol(id, rootfs, mountpoint string, uid, gid uint32, shiftUids bool, perm os.FileMode) (specs.Mount, error) {
+func (m *vmgr) CreateVol(id, rootfs, mountpoint string, uid, gid uint32, shiftUids bool, perm os.FileMode) ([]specs.Mount, error) {
 	var err error
 
 	volPath := filepath.Join(m.hostDir, id)
 	mountPath := filepath.Join(rootfs, mountpoint)
 
-	mount := specs.Mount{}
 	if _, err = os.Stat(volPath); err == nil {
-		return mount, fmt.Errorf("volume dir for container %v already exists", id)
+		return nil, fmt.Errorf("volume dir for container %v already exists", id)
 	}
 
 	// create volume info
 	m.mu.Lock()
 	if _, found := m.volTable[id]; found {
 		m.mu.Unlock()
-		return mount, fmt.Errorf("volume for container %v already exists", id)
+		return nil, fmt.Errorf("volume for container %v already exists", id)
 	}
 	vi := volInfo{
 		volPath:   volPath,
@@ -93,7 +91,7 @@ func (m *vmgr) CreateVol(id, rootfs, mountpoint string, uid, gid uint32, shiftUi
 	}()
 
 	if err = os.Mkdir(volPath, perm); err != nil {
-		return mount, fmt.Errorf("failed to create volume for container %v: %v", id, err)
+		return nil, fmt.Errorf("failed to create volume for container %v: %v", id, err)
 	}
 
 	// Set the ownership of the newly created volume to match the given uid(gid); this
@@ -102,26 +100,28 @@ func (m *vmgr) CreateVol(id, rootfs, mountpoint string, uid, gid uint32, shiftUi
 	// volume.
 	if err = os.Chown(volPath, int(uid), int(gid)); err != nil {
 		os.RemoveAll(volPath)
-		return mount, fmt.Errorf("failed to set ownership of volume %v: %v", volPath, err)
+		return nil, fmt.Errorf("failed to set ownership of volume %v: %v", volPath, err)
 	}
 
 	// sync the contents of container's mountpoint (if any) to the newly created volume ("sync-in")
 	if _, err := os.Stat(mountPath); err == nil {
 		if err = m.rsyncVol(mountPath, volPath, uid, gid, shiftUids); err != nil {
 			os.RemoveAll(volPath)
-			return mount, fmt.Errorf("volume sync-in failed: %v", err)
+			return nil, fmt.Errorf("volume sync-in failed: %v", err)
 		}
 	}
 
-	mount = specs.Mount{
-		Source:      volPath,
-		Destination: mountpoint,
-		Type:        "bind",
-		Options:     []string{"rbind", "rprivate"},
+	mounts := []specs.Mount{
+		{
+			Source:      volPath,
+			Destination: mountpoint,
+			Type:        "bind",
+			Options:     []string{"rbind", "rprivate"},
+		},
 	}
 
 	logrus.Debugf("Created volume at %v", volPath)
-	return mount, nil
+	return mounts, nil
 }
 
 // Implements intf.VolMgr.DestroyVol

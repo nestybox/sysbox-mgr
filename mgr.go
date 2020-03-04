@@ -74,6 +74,7 @@ type SysboxMgr struct {
 
 // newSysboxMgr creates an instance of the sysbox manager
 func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
+
 	err := setupWorkDirs()
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup the work dir: %v", err)
@@ -184,7 +185,7 @@ func (mgr *SysboxMgr) register(id string) error {
 
 	// remove the rootfs watch
 	if info.rootfs != "" {
-		rootfs := sanitizeRootfs(info.rootfs)
+		rootfs := sanitizeRootfs(id, info.rootfs)
 		mgr.rootfsWatcher.Remove(rootfs)
 		mgr.rtLock.Lock()
 		delete(mgr.rootfsTable, rootfs)
@@ -260,7 +261,7 @@ func (mgr *SysboxMgr) unregister(id string) error {
 	// setup rootfs watch (allows us to get notified when the container's rootfs is
 	// removed)
 	if info.rootfs != "" {
-		rootfs := sanitizeRootfs(info.rootfs)
+		rootfs := sanitizeRootfs(id, info.rootfs)
 		mgr.rtLock.Lock()
 		mgr.rootfsTable[rootfs] = id
 		mgr.rtLock.Unlock()
@@ -369,10 +370,9 @@ func (mgr *SysboxMgr) reqMounts(id, rootfs string, uid, gid uint32, shiftUids bo
 	// call appropriate handlers
 	mounts := []specs.Mount{}
 	for _, req := range reqList {
-		var (
-			m   specs.Mount
-			err error
-		)
+
+		var err error
+		m := []specs.Mount{}
 
 		switch req.Dest {
 		case "/var/lib/docker":
@@ -385,7 +385,7 @@ func (mgr *SysboxMgr) reqMounts(id, rootfs string, uid, gid uint32, shiftUids bo
 		if err != nil {
 			return nil, err
 		}
-		mounts = append(mounts, m)
+		mounts = append(mounts, m...)
 	}
 
 	if len(mounts) > 0 {

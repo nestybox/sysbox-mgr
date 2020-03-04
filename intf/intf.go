@@ -40,11 +40,11 @@ type VolMgr interface {
 	// Creates a volume for the sys container with the given 'id'. This function
 	// returns an OCI mount spec (which is passed back to sysbox-runc to setup the actual mount).
 	// 'rootfs' is the absolute path the container's rootfs.
-	// 'mountpoint' is the container's mountpoint (relative to it's rootfs)
+	// 'mountpoint' is the volume's mountpoint (relative to the container's rootfs)
 	// 'uid' and 'gid' are the uid(gid) of the container root process in the host's namespace.
 	// 'shiftUids' indicates if sysbox-runc is using uid-shifting for the container.
 	// 'perm' indicates the permissions for the created volume.
-	CreateVol(id, rootfs, mountpoint string, uid, gid uint32, shiftUids bool, perm os.FileMode) (specs.Mount, error)
+	CreateVol(id, rootfs, mountpoint string, uid, gid uint32, shiftUids bool, perm os.FileMode) ([]specs.Mount, error)
 
 	// Destroys a volume for the container with the given 'id'.
 	DestroyVol(id string) error
