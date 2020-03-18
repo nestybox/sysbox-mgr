@@ -172,7 +172,7 @@ func TestCreateVol(t *testing.T) {
 	defer cleanupTest(hostDir, rootfs)
 
 	id := "test-cont"
-	mountpoint := "/var/lib/docker"
+	mountpoint := "/var/lib/kubelet"
 	uid := uint32(os.Geteuid())
 	gid := uint32(os.Getegid())
 
@@ -196,7 +196,7 @@ func TestDestroyVol(t *testing.T) {
 	}
 
 	id := "test-cont"
-	mountpoint := "/var/lib/docker"
+	mountpoint := "/var/lib/kubelet"
 	uid := uint32(os.Geteuid())
 	gid := uint32(os.Getegid())
 
@@ -243,9 +243,9 @@ func testSyncInWork(t *testing.T, shiftUids bool) {
 	}
 	defer cleanupTest(hostDir, rootfs)
 
-	// create a fake container rootfs and populate its "/var/lib/docker"
+	// create a fake container rootfs and populate its "/var/lib/kubelet"
 	id := "test-cont"
-	mountpoint := "/var/lib/docker"
+	mountpoint := "/var/lib/kubelet"
 	uid = 231072
 	gid = 231072
 
@@ -256,7 +256,7 @@ func testSyncInWork(t *testing.T, shiftUids bool) {
 		t.Errorf("failed to populate rootfs mountpoint: %v", err)
 	}
 
-	// set the ownerships on all files under "<rootfs>/var/lib/docker" to root:root
+	// set the ownerships on all files under "<rootfs>/var/lib/kubelet" to root:root
 	err = filepath.Walk(mountPath, func(path string, fi os.FileInfo, err error) error {
 		if err == nil {
 			if err := os.Chown(path, 0, 0); err != nil {
@@ -344,7 +344,7 @@ func testSyncOutWork(t *testing.T, shiftUids bool) {
 	}
 
 	id := "test-cont"
-	mountpoint := "/var/lib/docker"
+	mountpoint := "/var/lib/kubelet"
 	uid = 231072
 	gid = 231072
 
@@ -435,7 +435,7 @@ func TestSyncInSkip(t *testing.T) {
 	}
 
 	id := "test-cont"
-	mountpoint := "/var/lib/docker"
+	mountpoint := "/var/lib/kubelet"
 	uid := uint32(231072)
 	gid := uint32(231072)
 
@@ -471,7 +471,7 @@ func TestSyncOutSkip(t *testing.T) {
 	}
 
 	id := "test-cont"
-	mountpoint := "/var/lib/docker"
+	mountpoint := "/var/lib/kubelet"
 	uid := uint32(231072)
 	gid := uint32(231072)
 
