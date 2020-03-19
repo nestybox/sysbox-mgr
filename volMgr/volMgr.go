@@ -204,9 +204,9 @@ func (m *vmgr) rsyncVol(src, dest string, uid, gid uint32, shiftUids bool) error
 
 	if shiftUids {
 		chown := "--chown=" + strconv.FormatUint(uint64(uid), 10) + ":" + strconv.FormatUint(uint64(gid), 10)
-		cmd = exec.Command("rsync", "-ravuq", "--delete", chown, srcDir, dest)
+		cmd = exec.Command("rsync", "-rauqH", "--delete", chown, srcDir, dest)
 	} else {
-		cmd = exec.Command("rsync", "-ravuq", "--delete", srcDir, dest)
+		cmd = exec.Command("rsync", "-rauqH", "--delete", srcDir, dest)
 	}
 
 	cmd.Stdout = &stdout

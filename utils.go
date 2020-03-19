@@ -245,6 +245,12 @@ func setupDsVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
 
 	innerImgSharing := !ctx.GlobalBool("no-inner-docker-image-sharing")
 
+	if innerImgSharing {
+		logrus.Infof("Inner docker image sharing enabled.")
+	} else {
+		logrus.Infof("Inner docker image sharing disabled.")
+	}
+
 	return dockerVolMgr.New(hostDir, innerImgSharing)
 }
 
