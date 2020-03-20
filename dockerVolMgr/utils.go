@@ -11,7 +11,6 @@ import (
 	"strconv"
 
 	"github.com/nestybox/sysbox-mgr/lib/dockerUtils"
-	"github.com/sirupsen/logrus"
 )
 
 func queryDockerForImageID(id string) (string, error) {
@@ -132,7 +131,6 @@ func rsyncVol(src, dest string, uid, gid uint32, shiftUids bool, exclude string,
 		return fmt.Errorf("failed to sync %s to %s: %v %v\n", srcDir, dest, string(stdout.Bytes()), string(stderr.Bytes()))
 	}
 
-	logrus.Debugf("sync'd %s to %s", srcDir, dest)
 	return nil
 }
 

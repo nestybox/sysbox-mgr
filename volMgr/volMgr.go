@@ -120,7 +120,7 @@ func (m *vmgr) CreateVol(id, rootfs, mountpoint string, uid, gid uint32, shiftUi
 		},
 	}
 
-	logrus.Debugf("Created volume at %v", volPath)
+	logrus.Debugf("created volume for container %s", id)
 	return mounts, nil
 }
 
@@ -148,7 +148,7 @@ func (m *vmgr) DestroyVol(id string) error {
 	delete(m.volTable, id)
 	m.mu.Unlock()
 
-	logrus.Debugf("Destroyed volume at %v", volPath)
+	logrus.Debugf("destroyed volume for container %s", id)
 	return nil
 }
 
@@ -184,7 +184,20 @@ func (m *vmgr) SyncOut(id string) error {
 		}
 	}
 
+	logrus.Debugf("sync'd-out volume for container %s", id)
 	return nil
+}
+
+// Implements intf.VolMgr.SyncOutAndDestroyAll
+func (m *vmgr) SyncOutAndDestroyAll() {
+	for id, _ := range m.volTable {
+		if err := m.SyncOut(id); err != nil {
+			logrus.Warnf("failed to sync-out volumes for container %s: %s", id, err)
+		}
+		if err := m.DestroyVol(id); err != nil {
+			logrus.Warnf("failed to destroy volumes for container %s: %s", id, err)
+		}
+	}
 }
 
 // rsyncVol performs an rsync from src to dest; if shiftUids is true, the rsync
@@ -217,7 +230,6 @@ func (m *vmgr) rsyncVol(src, dest string, uid, gid uint32, shiftUids bool) error
 		return fmt.Errorf("failed to sync %s to %s: %v %v\n", srcDir, dest, string(stdout.Bytes()), string(stderr.Bytes()))
 	}
 
-	logrus.Debugf("sync'd %s to %s", srcDir, dest)
 	return nil
 }
 

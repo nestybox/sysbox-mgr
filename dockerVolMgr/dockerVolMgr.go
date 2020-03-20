@@ -125,6 +125,7 @@ func (mgr *dockerVolMgr) CreateVol(id, rootfs, mountpoint string, uid, gid uint3
 
 	mgr.mu.Lock()
 	if _, found := mgr.volTable[id]; found {
+		mgr.mu.Unlock()
 		return nil, fmt.Errorf("volume for %s already exists", id)
 	}
 	mgr.mu.Unlock()
@@ -179,8 +180,6 @@ func (mgr *dockerVolMgr) CreateVol(id, rootfs, mountpoint string, uid, gid uint3
 	mounts = append(mounts, baseVolMount...)
 	mounts = append(mounts, imgVolMounts...)
 
-	logrus.Debugf("Created inner docker image volumes for container %v", id)
-
 	return mounts, nil
 }
 
@@ -190,6 +189,7 @@ func (mgr *dockerVolMgr) DestroyVol(id string) error {
 	mgr.mu.Lock()
 	vi, found := mgr.volTable[id]
 	if !found {
+		mgr.mu.Unlock()
 		return fmt.Errorf("invalid id %s", id)
 	}
 	mgr.mu.Unlock()
@@ -208,8 +208,6 @@ func (mgr *dockerVolMgr) DestroyVol(id string) error {
 
 	delete(mgr.volTable, id)
 
-	logrus.Debugf("Destroyed inner docker image volumes for container %v", id)
-
 	return nil
 }
 
@@ -219,6 +217,7 @@ func (mgr *dockerVolMgr) SyncOut(id string) error {
 	mgr.mu.Lock()
 	vi, found := mgr.volTable[id]
 	if !found {
+		mgr.mu.Unlock()
 		return fmt.Errorf("invalid id %s", id)
 	}
 	mgr.mu.Unlock()
@@ -238,9 +237,19 @@ func (mgr *dockerVolMgr) SyncOut(id string) error {
 		}
 	}
 
-	logrus.Debugf("Sync'd-out inner docker image volumes for container %v", id)
-
 	return nil
+}
+
+// Implements intf.VolMgr.SyncOutAndDestroyAll
+func (mgr *dockerVolMgr) SyncOutAndDestroyAll() {
+	for id, _ := range mgr.volTable {
+		if err := mgr.SyncOut(id); err != nil {
+			logrus.Warnf("failed to sync-out volumes for container %s: %s", id, err)
+		}
+		if err := mgr.DestroyVol(id); err != nil {
+			logrus.Warnf("failed to destroy volumes for container %s: %s", id, err)
+		}
+	}
 }
 
 // Creates the base volume to back the given sys container's /var/lib/docker. Copies the
@@ -364,6 +373,7 @@ func (mgr *dockerVolMgr) setupImgSharing(id, imgID string, vi *volInfo) ([]specs
 	if !found {
 		imgVi, err = mgr.createImgVol(imgID, vi)
 		if err != nil {
+			mgr.mu.Unlock()
 			return nil, err
 		}
 		mgr.imgTable[imgID] = imgVi
@@ -388,6 +398,7 @@ func (mgr *dockerVolMgr) teardownImgSharing(id string, vi *volInfo) error {
 	mgr.mu.Lock()
 	imgVi, found := mgr.imgTable[vi.imgID]
 	if !found {
+		mgr.mu.Unlock()
 		return fmt.Errorf("no image vol found for image %s", vi.imgID)
 	}
 

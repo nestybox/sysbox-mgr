@@ -21,6 +21,7 @@ import (
 	"github.com/nestybox/sysbox-mgr/lib/dockerUtils"
 	"github.com/nestybox/sysbox-mgr/subidAlloc"
 	"github.com/nestybox/sysbox-mgr/volMgr"
+	"github.com/opencontainers/runc/libcontainer/mount"
 	"github.com/opencontainers/runc/libcontainer/user"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
@@ -284,9 +285,13 @@ func setupKsVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
 }
 
 func setupWorkDirs() error {
+
+	// Cleanup work dirs in case they were left unclean from a prior session (e.g., if
+	// sysbox was running and stopped with SIGKILL)
 	if err := cleanupWorkDirs(); err != nil {
 		return err
 	}
+
 	if err := os.MkdirAll(sysboxRunDir, 0700); err != nil {
 		return err
 	}
@@ -298,11 +303,22 @@ func setupWorkDirs() error {
 
 func cleanupWorkDirs() error {
 
-	// TODO: ask each volMgr to cleanup it's work dir.
+	// Remove any mounts under the sysbox lib dir (we don't expect any because normally
+	// sysbox-mgr removes all mounts it creates, unless is was killed with SIGKILL).
+	mountinfos, err := mount.GetMounts()
+	if err != nil {
+		return fmt.Errorf("failed to obtain mounts: %s", err)
+	}
 
-	// File corresponding to the GRPC unix-socket will be eliminated as part
-	// of the grpcServer initialization logic.
+	for _, mi := range mountinfos {
+		if strings.HasPrefix(mi.Mountpoint, sysboxLibDir+"/") {
+			if err := unix.Unmount(mi.Mountpoint, unix.MNT_DETACH); err != nil {
+				return fmt.Errorf("failed to unmount %s: %s", mi.Mountpoint, err)
+			}
+		}
+	}
 
+	// Remove the sysbox lib dir
 	if _, err := os.Stat(sysboxLibDir); err == nil {
 		if err := removeDirContents(sysboxLibDir); err != nil {
 			return err
@@ -353,4 +369,27 @@ func sanitizeRootfs(id, rootfs string) string {
 	}
 
 	return rootfs
+}
+
+// createPidFile writes the sysbox pid to a file. If the file already exists (e.g.,
+// another sysbox instance is running), returns error.
+func createPidFile(pidFile string) error {
+
+	_, err := os.Stat(pidFile)
+	if err == nil {
+		return fmt.Errorf("%s exists", pidFile)
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+
+	pidStr := fmt.Sprintf("%d\n", os.Getpid())
+	if err := ioutil.WriteFile(pidFile, []byte(pidStr), 0400); err != nil {
+		return fmt.Errorf("failed to write sysbox pid to file %s: %s", pidFile, err)
+	}
+
+	return nil
+}
+
+func destroyPidFile(pidFile string) error {
+	return os.RemoveAll(pidFile)
 }

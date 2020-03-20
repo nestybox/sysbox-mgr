@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/opencontainers/runc/libcontainer/user"
@@ -192,6 +193,7 @@ func testConfigSubidRangeHelper(subidFilePre, subidFilePost string, size, min, m
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %v", err)
 	}
+	defer os.RemoveAll(f.Name())
 
 	if err := ioutil.WriteFile(f.Name(), []byte(subidFilePre), 644); err != nil {
 		return fmt.Errorf("failed to write file %s: %v", f.Name(), err)
@@ -202,10 +204,6 @@ func testConfigSubidRangeHelper(subidFilePre, subidFilePost string, size, min, m
 	}
 
 	verifyFileData(f.Name(), []byte(subidFilePost))
-
-	if err := os.Remove(f.Name()); err != nil {
-		return fmt.Errorf("failed to remove file %s", f.Name())
-	}
 
 	return nil
 }
@@ -312,6 +310,46 @@ some data
 	want = []uint64{100000, 4294967295, 100000, 4294967295}
 	if err := testGetSubidLimitsHelper(fileData, want); err != nil {
 		t.Errorf(err.Error())
+	}
+
+}
+
+func TestSysboxPidFile(t *testing.T) {
+
+	testDir, err := ioutil.TempDir("", "sysbox-mgr-test")
+	if err != nil {
+		t.Errorf(err.Error())
+	}
+	defer os.RemoveAll(testDir)
+
+	pidFile := filepath.Join(testDir, "sysbox-mgr.pid")
+
+	// create sysbox pid file
+	if err := createSysboxPidFile(pidFile); err != nil {
+		t.Errorf("createSysboxPidFile() failed: %s", err)
+	}
+
+	// verify
+	_, err = os.Stat(pidFile)
+	if err != nil {
+		t.Errorf("failed to stat %s: %s", pidFile, err)
+	}
+
+	// create again (should fail)
+	if err := createSysboxPidFile(pidFile); err == nil {
+		t.Errorf("createSysboxPidFile() failed: expected error, got nil")
+	}
+
+	// destroy the pid file
+	if err := destroySysboxPidFile(pidFile); err != nil {
+		t.Errorf("destroySysboxPidFile() failed: %s", err)
+	}
+
+	// verify
+	_, err = os.Stat(pidFile)
+	if err == nil || !os.IsNotExist(err) {
+		t.Errorf("pid file %s was not removed", pidFile)
+		os.RemoveAll(pidFile)
 	}
 
 }

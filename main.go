@@ -7,7 +7,9 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
@@ -133,16 +135,29 @@ func main() {
 	}
 
 	app.Action = func(ctx *cli.Context) error {
+
 		logrus.Info("Starting ...")
+
 		mgr, err := newSysboxMgr(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to create sysbox-mgr: %v", err)
 		}
+
+		var signalChan = make(chan os.Signal, 1)
+		signal.Notify(
+			signalChan,
+			syscall.SIGHUP,
+			syscall.SIGINT,
+			syscall.SIGTERM,
+			syscall.SIGQUIT)
+		go signalHandler(signalChan, mgr)
+
 		logrus.Infof("Listening on %v", mgr.grpcServer.GetAddr())
 		if err := mgr.Start(); err != nil {
 			return fmt.Errorf("failed to start sysbox-mgr: %v", err)
 		}
-		mgr.Cleanup()
+
+		mgr.Stop()
 		logrus.Info("Done.")
 		return nil
 	}
@@ -150,4 +165,19 @@ func main() {
 	if err := app.Run(os.Args); err != nil {
 		logrus.Fatal(err)
 	}
+}
+
+// sysbox-mgr signal handler goroutine.
+func signalHandler(signalChan chan os.Signal, mgr *SysboxMgr) {
+
+	s := <-signalChan
+
+	logrus.Infof("Caught OS signal: %s", s)
+
+	if err := mgr.Stop(); err != nil {
+		logrus.Warnf("Failed to terminate sysbox-mgr gracefully: %s", err)
+	}
+
+	logrus.Info("Exiting.")
+	os.Exit(0)
 }

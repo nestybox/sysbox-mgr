@@ -51,6 +51,9 @@ type VolMgr interface {
 
 	// Sync the contents of the volume back to container's rootfs
 	SyncOut(id string) error
+
+	// Sync and destroys all volumes (best effort, ignore errors)
+	SyncOutAndDestroyAll()
 }
 
 // The ShiftfsMgr interface defines the interface exposed by the sysbox-mgr shiftfs manager
@@ -61,4 +64,7 @@ type ShiftfsMgr interface {
 
 	// Remove shiftfs marks associated with the given container
 	Unmark(id string, mount []configs.ShiftfsMount) error
+
+	// Remove shiftfs marks associated with all containers (best effort, ignore errors)
+	UnmarkAll()
 }
