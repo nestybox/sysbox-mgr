@@ -116,6 +116,21 @@ func (sm *mgr) Unmark(id string, mount []configs.ShiftfsMount) error {
 	return nil
 }
 
+func (sm *mgr) UnmarkAll() {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	for mp := range sm.mpMap {
+		if !testingMode {
+			if err := shiftfs.Unmount(mp); err != nil {
+				logrus.Warnf("failed to unmark shiftfs on %s: %s", mp, err)
+			}
+			logrus.Debugf("unmarked shiftfs on %s", mp)
+		}
+		delete(sm.mpMap, mp)
+	}
+}
+
 // Removes element 'elem' from the given string slice
 func removeID(ids []string, elem string) ([]string, error) {
 	var (

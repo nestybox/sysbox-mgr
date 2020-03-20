@@ -7,6 +7,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 	"syscall"
 
@@ -74,10 +75,17 @@ type SysboxMgr struct {
 
 // newSysboxMgr creates an instance of the sysbox manager
 func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
+	var err error
 
-	err := setupWorkDirs()
+	err = setupWorkDirs()
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup the work dir: %v", err)
+	}
+
+	pidFile := filepath.Join(sysboxRunDir, "sysmgr.pid")
+	err = createPidFile(pidFile)
+	if err != nil {
+		return nil, fmt.Errorf("refusing to start: %s", err)
 	}
 
 	subidAlloc, err := setupSubidAlloc(ctx)
@@ -138,20 +146,44 @@ func (mgr *SysboxMgr) Start() error {
 	// start the the rootfs monitor (listens for rootfs watch events)
 	go mgr.rootfsMon()
 
+	logrus.Info("Ready ...")
+
 	// listen for grpc connections
 	return mgr.grpcServer.Init()
 }
 
-func (mgr *SysboxMgr) Cleanup() error {
-	mgr.rootfsMonStop <- 1
+func (mgr *SysboxMgr) Stop() error {
 
+	logrus.Info("Stopping (gracefully) ...")
+
+	mgr.ctLock.Lock()
+	if len(mgr.contTable) > 0 {
+		logrus.Warn("The following containers are active and will stop operating properly:")
+		for id := range mgr.contTable {
+			logrus.Warnf("container id: %s", id)
+		}
+	}
+	mgr.ctLock.Unlock()
+
+	mgr.rootfsMonStop <- 1
 	if err := mgr.rootfsWatcher.Close(); err != nil {
 		return fmt.Errorf("failed to close rootfs rm fs watcher: %v", err)
+	}
+
+	mgr.dsVolMgr.SyncOutAndDestroyAll()
+	mgr.ksVolMgr.SyncOutAndDestroyAll()
+	mgr.shiftfsMgr.UnmarkAll()
+
+	pidFile := filepath.Join(sysboxRunDir, "sysmgr.pid")
+	if err := destroyPidFile(pidFile); err != nil {
+		return fmt.Errorf("failed to destroy sysbox pid file: %v", err)
 	}
 
 	if err := cleanupWorkDirs(); err != nil {
 		return fmt.Errorf("failed to cleanup work dirs: %v", err)
 	}
+
+	logrus.Info("Stopped.")
 
 	return nil
 }
@@ -383,7 +415,7 @@ func (mgr *SysboxMgr) reqMounts(id, rootfs string, uid, gid uint32, shiftUids bo
 			err = fmt.Errorf("unknown mount request type")
 		}
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to create volume backing %s for container %s: %s", req.Dest, id, err)
 		}
 		mounts = append(mounts, m...)
 	}
