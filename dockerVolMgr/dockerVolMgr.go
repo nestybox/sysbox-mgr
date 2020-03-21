@@ -81,7 +81,8 @@ type dockerVolMgr struct {
 	cowVolDir       string
 	volTable        map[string]*volInfo    // container id -> volInfo
 	imgTable        map[string]*imgVolInfo // image id -> imgVolInfo
-	mu              sync.Mutex
+	volTableMu      sync.Mutex
+	imgTableMu      sync.Mutex
 }
 
 // Creates a new instance of the dockerVolMgr
@@ -123,12 +124,12 @@ func New(workspace string, innerImgSharing bool) (intf.VolMgr, error) {
 func (mgr *dockerVolMgr) CreateVol(id, rootfs, mountpoint string, uid, gid uint32, shiftUids bool, perm os.FileMode) ([]specs.Mount, error) {
 	var err error
 
-	mgr.mu.Lock()
+	mgr.volTableMu.Lock()
 	if _, found := mgr.volTable[id]; found {
-		mgr.mu.Unlock()
+		mgr.volTableMu.Unlock()
 		return nil, fmt.Errorf("volume for %s already exists", id)
 	}
-	mgr.mu.Unlock()
+	mgr.volTableMu.Unlock()
 
 	vi := &volInfo{
 		basePath:  filepath.Join(mgr.baseVolDir, id),
@@ -172,9 +173,9 @@ func (mgr *dockerVolMgr) CreateVol(id, rootfs, mountpoint string, uid, gid uint3
 		return nil, fmt.Errorf("failed to create docker vol for %s: %s", id, err)
 	}
 
-	mgr.mu.Lock()
+	mgr.volTableMu.Lock()
 	mgr.volTable[id] = vi
-	mgr.mu.Unlock()
+	mgr.volTableMu.Unlock()
 
 	mounts := []specs.Mount{}
 	mounts = append(mounts, baseVolMount...)
@@ -186,13 +187,13 @@ func (mgr *dockerVolMgr) CreateVol(id, rootfs, mountpoint string, uid, gid uint3
 // Implements intf.VolMgr.DestroyVol
 func (mgr *dockerVolMgr) DestroyVol(id string) error {
 
-	mgr.mu.Lock()
+	mgr.volTableMu.Lock()
 	vi, found := mgr.volTable[id]
 	if !found {
-		mgr.mu.Unlock()
+		mgr.volTableMu.Unlock()
 		return fmt.Errorf("invalid id %s", id)
 	}
-	mgr.mu.Unlock()
+	mgr.volTableMu.Unlock()
 
 	if mgr.innerImgSharing {
 		if vi.imgID != "" {
@@ -206,7 +207,9 @@ func (mgr *dockerVolMgr) DestroyVol(id string) error {
 		return fmt.Errorf("failed to destroy docker vol for %s: %s", id, err)
 	}
 
+	mgr.volTableMu.Lock()
 	delete(mgr.volTable, id)
+	mgr.volTableMu.Unlock()
 
 	return nil
 }
@@ -214,13 +217,13 @@ func (mgr *dockerVolMgr) DestroyVol(id string) error {
 // Implements intf.VolMgr.SyncOut
 func (mgr *dockerVolMgr) SyncOut(id string) error {
 
-	mgr.mu.Lock()
+	mgr.volTableMu.Lock()
 	vi, found := mgr.volTable[id]
 	if !found {
-		mgr.mu.Unlock()
+		mgr.volTableMu.Unlock()
 		return fmt.Errorf("invalid id %s", id)
 	}
-	mgr.mu.Unlock()
+	mgr.volTableMu.Unlock()
 
 	skipImgCopy := false
 	if vi.cowPath != "" {
@@ -368,19 +371,17 @@ func (mgr *dockerVolMgr) setupImgSharing(id, imgID string, vi *volInfo) ([]specs
 	// image. We only create the image volume if this is the first container for this
 	// image.
 
-	mgr.mu.Lock()
+	mgr.imgTableMu.Lock()
+	defer mgr.imgTableMu.Unlock()
+
 	imgVi, found := mgr.imgTable[imgID]
 	if !found {
 		imgVi, err = mgr.createImgVol(imgID, vi)
 		if err != nil {
-			mgr.mu.Unlock()
 			return nil, err
 		}
 		mgr.imgTable[imgID] = imgVi
 	}
-
-	imgVi.refCnt++
-	mgr.mu.Unlock()
 
 	// Create the cow volume for this container; it holds the overlayfs mounts that back
 	// the inner docker images for the container. There is one of these per container.
@@ -389,20 +390,21 @@ func (mgr *dockerVolMgr) setupImgSharing(id, imgID string, vi *volInfo) ([]specs
 		return nil, err
 	}
 
+	imgVi.refCnt++
+
 	return cowMnt, nil
 }
 
 // Teardown sys container inner docker image sharing.
 func (mgr *dockerVolMgr) teardownImgSharing(id string, vi *volInfo) error {
 
-	mgr.mu.Lock()
+	mgr.imgTableMu.Lock()
+	defer mgr.imgTableMu.Unlock()
+
 	imgVi, found := mgr.imgTable[vi.imgID]
 	if !found {
-		mgr.mu.Unlock()
 		return fmt.Errorf("no image vol found for image %s", vi.imgID)
 	}
-
-	defer mgr.mu.Unlock()
 
 	if err := mgr.destroyCowVol(id, vi, imgVi); err != nil {
 		return err
