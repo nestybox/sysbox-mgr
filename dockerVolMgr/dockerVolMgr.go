@@ -315,6 +315,12 @@ func (mgr *dockerVolMgr) syncInBaseVol(id string, vi *volInfo, skipImgCopy bool)
 		exclude = "/" + dockerImgDir + "/[0-9a-z]*[0-9a-z]/diff"
 	}
 
+	// TODO: optimize this by using multiple go routines for the sync-in, specially for the
+	// case where inner image sharing is disabled. In this case, the base vol copy will
+	// include the sys container inner images which means it will be slow unless
+	// optimized. Same applies for syncOutBaseVol. See how this is done for the image
+	// volume for an example.
+
 	// Note: set 'deleteAtRx' to false during sync-in (copy everything)
 	if err := rsyncVol(vi.contPath, vi.basePath, vi.uid, vi.gid, vi.shiftUids, exclude, false); err != nil {
 		return fmt.Errorf("volume sync-in for %v failed: %v", id, err)
