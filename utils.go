@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -29,6 +30,16 @@ import (
 )
 
 const SHIFTFS_MAGIC int64 = 0x6a656a62
+
+var progDeps = []string{"rsync", "modprobe"}
+
+func cmdExists(name string) bool {
+	cmd := exec.Command("/bin/sh", "-c", "command -v "+name)
+	if err := cmd.Run(); err != nil {
+		return false
+	}
+	return true
+}
 
 func allocSubidRange(subID []user.SubID, size, min, max uint64) ([]user.SubID, error) {
 	var holeStart, holeEnd uint64

@@ -227,7 +227,7 @@ func (m *vmgr) rsyncVol(src, dest string, uid, gid uint32, shiftUids bool) error
 
 	err := cmd.Run()
 	if err != nil {
-		return fmt.Errorf("failed to sync %s to %s: %v %v\n", srcDir, dest, string(stdout.Bytes()), string(stderr.Bytes()))
+		return fmt.Errorf("failed to sync %s to %s: %v %v\n", srcDir, dest, string(stdout.Bytes()), err)
 	}
 
 	return nil
