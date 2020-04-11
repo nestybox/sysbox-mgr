@@ -77,6 +77,11 @@ type SysboxMgr struct {
 func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 	var err error
 
+	err = preFlightCheck()
+	if err != nil {
+		return nil, fmt.Errorf("preflight check failed: %s", err)
+	}
+
 	err = setupWorkDirs()
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup the work dir: %v", err)
@@ -592,5 +597,14 @@ func (mgr *SysboxMgr) pause(id string) error {
 		}
 	}
 
+	return nil
+}
+
+func preFlightCheck() error {
+	for _, prog := range progDeps {
+		if !cmdExists(prog) {
+			return fmt.Errorf("%s is not installed on host.", prog)
+		}
+	}
 	return nil
 }

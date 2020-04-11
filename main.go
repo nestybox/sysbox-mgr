@@ -21,7 +21,7 @@ var subidRangeSize uint64 = 268435456
 const (
 	usage = `sysbox manager
 
-sysbox-mgr is the Sysbox manager daemon. It's main job is to provide services to other
+sysbox-mgr is the Sysbox Manager daemon. It's main job is to provide services to other
 sysbox components (e.g., sysbox-runc).`
 )
 
@@ -68,7 +68,7 @@ func main() {
 		},
 		cli.BoolFlag{
 			Name:  "no-inner-docker-image-sharing",
-			Usage: "Disable copy-on-write sharing of inner docker images between system containers; may increase container startup time and storage overhead",
+			Usage: "disable copy-on-write sharing of inner docker images between system containers; may increase container startup time and storage overhead",
 		},
 	}
 
