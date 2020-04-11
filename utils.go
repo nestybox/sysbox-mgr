@@ -61,7 +61,7 @@ func allocSubidRange(subID []user.SubID, size, min, max uint64) ([]user.SubID, e
 		holeEnd = uint64(id.SubID)
 
 		if (holeEnd >= holeStart) && (holeEnd-holeStart >= size) {
-			sortedSubID = append(sortedSubID, user.SubID{"sysbox", int64(holeStart), int64(size)})
+			sortedSubID = append(sortedSubID, user.SubID{Name: "sysbox", SubID: int64(holeStart), Count: int64(size)})
 			return sortedSubID, nil
 		}
 
@@ -73,7 +73,7 @@ func allocSubidRange(subID []user.SubID, size, min, max uint64) ([]user.SubID, e
 		return sortedSubID, fmt.Errorf("failed to allocate %d subids in range %d, %d", size, min, max)
 	}
 
-	sortedSubID = append(sortedSubID, user.SubID{"sysbox", int64(holeStart), int64(size)})
+	sortedSubID = append(sortedSubID, user.SubID{Name: "sysbox", SubID: int64(holeStart), Count: int64(size)})
 	return sortedSubID, nil
 }
 
@@ -227,7 +227,7 @@ func setupSubidAlloc(ctx *cli.Context) (intf.SubidAlloc, error) {
 	return subidAlloc, nil
 }
 
-func setupDsVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
+func setupDockerVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
 	var statfs syscall.Statfs_t
 
 	hostDir := filepath.Join(sysboxLibDir, "docker")
@@ -251,7 +251,7 @@ func setupDsVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
 
 	for name, magic := range unsupportedFs {
 		if statfs.Type == magic {
-			return nil, fmt.Errorf("host dir for docker store (%s) can't be on %v", hostDir, name)
+			return nil, fmt.Errorf("host dir for docker vol manager (%s) can't be on %v", hostDir, name)
 		}
 	}
 
@@ -266,7 +266,7 @@ func setupDsVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
 	return dockerVolMgr.New(hostDir, innerImgSharing)
 }
 
-func setupKsVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
+func setupKubeletVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
 
 	var statfs syscall.Statfs_t
 
@@ -288,7 +288,36 @@ func setupKsVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
 
 	for name, magic := range unsupportedFs {
 		if statfs.Type == magic {
-			return nil, fmt.Errorf("host dir for kubelet store (%s) can't be on %v", hostDir, name)
+			return nil, fmt.Errorf("host dir for kubelet vol manager (%s) can't be on %v", hostDir, name)
+		}
+	}
+
+	return volMgr.New(hostDir)
+}
+
+func setupContainerdVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
+
+	var statfs syscall.Statfs_t
+
+	hostDir := filepath.Join(sysboxLibDir, "containerd")
+	if err := os.MkdirAll(hostDir, 0700); err != nil {
+		return nil, fmt.Errorf("failed to create %v: %v", hostDir, err)
+	}
+
+	// The host dir that is bind-mounted into the sys container's /var/lib/containerd
+	// directory can't be on the following filesystems, as containerd inside the sys
+	// container does not support them (see sysbox issue #622).
+	unsupportedFs := map[string]int64{
+		"shiftfs": SHIFTFS_MAGIC,
+	}
+
+	if err := syscall.Statfs(hostDir, &statfs); err != nil {
+		return nil, fmt.Errorf("failed to find filesystem info for %s", hostDir)
+	}
+
+	for name, magic := range unsupportedFs {
+		if statfs.Type == magic {
+			return nil, fmt.Errorf("host dir for containerd vol mnager (%s) can't be on %v", hostDir, name)
 		}
 	}
 

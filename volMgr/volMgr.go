@@ -10,8 +10,8 @@
 //
 // The volume manager takes care of ensuring that the backing host directory has correct
 // ownership to allow sys container root processes to access it, and also handles copying
-// contents from the sys container to the bind-mount source and vice-versa when the
-// container is started, stopped, or paused.
+// contents from the sys container rootfs to the backing dir when the container is started,
+// and vice-versa when container is stopped or paused.
 
 package volMgr
 

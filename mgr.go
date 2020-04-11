@@ -58,19 +58,20 @@ type containerInfo struct {
 }
 
 type SysboxMgr struct {
-	grpcServer    *grpc.ServerStub
-	subidAlloc    intf.SubidAlloc
-	dsVolMgr      intf.VolMgr
-	ksVolMgr      intf.VolMgr
-	shiftfsMgr    intf.ShiftfsMgr
-	contTable     map[string]containerInfo // cont id -> cont info
-	ctLock        sync.Mutex
-	rootfsTable   map[string]string // cont rootfs -> cont id; used by rootfs monitor
-	rtLock        sync.Mutex
-	rootfsMonStop chan int
-	rootfsWatcher *fsnotify.Watcher
-	mntPrepTable  map[string]string // mount source -> cont id
-	mntPrepLock   sync.Mutex
+	grpcServer       *grpc.ServerStub
+	subidAlloc       intf.SubidAlloc
+	dockerVolMgr     intf.VolMgr
+	kubeletVolMgr    intf.VolMgr
+	containerdVolMgr intf.VolMgr
+	shiftfsMgr       intf.ShiftfsMgr
+	contTable        map[string]containerInfo // cont id -> cont info
+	ctLock           sync.Mutex
+	rootfsTable      map[string]string // cont rootfs -> cont id; used by rootfs monitor
+	rtLock           sync.Mutex
+	rootfsMonStop    chan int
+	rootfsWatcher    *fsnotify.Watcher
+	mntPrepTable     map[string]string // mount source -> cont id
+	mntPrepLock      sync.Mutex
 }
 
 // newSysboxMgr creates an instance of the sysbox manager
@@ -98,14 +99,19 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		return nil, fmt.Errorf("failed to setup subid allocator: %v", err)
 	}
 
-	dsVolMgr, err := setupDsVolMgr(ctx)
+	dockerVolMgr, err := setupDockerVolMgr(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to setup docker-store vol mgr: %v", err)
+		return nil, fmt.Errorf("failed to setup docker vol mgr: %v", err)
 	}
 
-	ksVolMgr, err := setupKsVolMgr(ctx)
+	kubeletVolMgr, err := setupKubeletVolMgr(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to setup kubelet-store vol mgr: %v", err)
+		return nil, fmt.Errorf("failed to setup kubelet vol mgr: %v", err)
+	}
+
+	containerdVolMgr, err := setupContainerdVolMgr(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to setup containerd vol mgr: %v", err)
 	}
 
 	shiftfsMgr, err := shiftfsMgr.New()
@@ -114,14 +120,15 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 	}
 
 	mgr := &SysboxMgr{
-		subidAlloc:    subidAlloc,
-		dsVolMgr:      dsVolMgr,
-		ksVolMgr:      ksVolMgr,
-		shiftfsMgr:    shiftfsMgr,
-		contTable:     make(map[string]containerInfo),
-		rootfsTable:   make(map[string]string),
-		rootfsMonStop: make(chan int),
-		mntPrepTable:  make(map[string]string),
+		subidAlloc:       subidAlloc,
+		dockerVolMgr:     dockerVolMgr,
+		kubeletVolMgr:    kubeletVolMgr,
+		containerdVolMgr: containerdVolMgr,
+		shiftfsMgr:       shiftfsMgr,
+		contTable:        make(map[string]containerInfo),
+		rootfsTable:      make(map[string]string),
+		rootfsMonStop:    make(chan int),
+		mntPrepTable:     make(map[string]string),
 	}
 
 	cb := &grpc.ServerCallbacks{
@@ -175,8 +182,9 @@ func (mgr *SysboxMgr) Stop() error {
 		return fmt.Errorf("failed to close rootfs rm fs watcher: %v", err)
 	}
 
-	mgr.dsVolMgr.SyncOutAndDestroyAll()
-	mgr.ksVolMgr.SyncOutAndDestroyAll()
+	mgr.dockerVolMgr.SyncOutAndDestroyAll()
+	mgr.kubeletVolMgr.SyncOutAndDestroyAll()
+	mgr.containerdVolMgr.SyncOutAndDestroyAll()
 	mgr.shiftfsMgr.UnmarkAll()
 
 	pidFile := filepath.Join(sysboxRunDir, "sysmgr.pid")
@@ -282,9 +290,11 @@ func (mgr *SysboxMgr) unregister(id string) error {
 	for _, mnt := range info.mounts {
 		switch mnt.Destination {
 		case "/var/lib/docker":
-			err = mgr.dsVolMgr.SyncOut(id)
+			err = mgr.dockerVolMgr.SyncOut(id)
 		case "/var/lib/kubelet":
-			err = mgr.ksVolMgr.SyncOut(id)
+			err = mgr.kubeletVolMgr.SyncOut(id)
+		case "/var/lib/containerd":
+			err = mgr.containerdVolMgr.SyncOut(id)
 		}
 		if err != nil {
 			return fmt.Errorf("sync-out for volume backing %s for container %s failed: %v", mnt.Destination, id, err)
@@ -361,9 +371,11 @@ func (mgr *SysboxMgr) removeCont(id string) {
 
 		switch mnt.Destination {
 		case "/var/lib/docker":
-			err = mgr.dsVolMgr.DestroyVol(id)
+			err = mgr.dockerVolMgr.DestroyVol(id)
 		case "/var/lib/kubelet":
-			err = mgr.ksVolMgr.DestroyVol(id)
+			err = mgr.kubeletVolMgr.DestroyVol(id)
+		case "/var/lib/containerd":
+			err = mgr.containerdVolMgr.DestroyVol(id)
 		}
 		if err != nil {
 			logrus.Errorf("rootfsMon: failed to destroy volume backing %s for container %s: %s", mnt.Destination, id, err)
@@ -413,9 +425,11 @@ func (mgr *SysboxMgr) reqMounts(id, rootfs string, uid, gid uint32, shiftUids bo
 
 		switch req.Dest {
 		case "/var/lib/docker":
-			m, err = mgr.dsVolMgr.CreateVol(id, rootfs, req.Dest, uid, gid, shiftUids, 0700)
+			m, err = mgr.dockerVolMgr.CreateVol(id, rootfs, req.Dest, uid, gid, shiftUids, 0700)
 		case "/var/lib/kubelet":
-			m, err = mgr.ksVolMgr.CreateVol(id, rootfs, req.Dest, uid, gid, shiftUids, 0755)
+			m, err = mgr.kubeletVolMgr.CreateVol(id, rootfs, req.Dest, uid, gid, shiftUids, 0755)
+		case "/var/lib/containerd":
+			m, err = mgr.containerdVolMgr.CreateVol(id, rootfs, req.Dest, uid, gid, shiftUids, 0700)
 		default:
 			err = fmt.Errorf("unknown mount request type")
 		}
@@ -588,9 +602,11 @@ func (mgr *SysboxMgr) pause(id string) error {
 
 		switch mnt.Destination {
 		case "/var/lib/docker":
-			err = mgr.dsVolMgr.SyncOut(id)
+			err = mgr.dockerVolMgr.SyncOut(id)
 		case "/var/lib/kubelet":
-			err = mgr.ksVolMgr.SyncOut(id)
+			err = mgr.kubeletVolMgr.SyncOut(id)
+		case "/var/lib/containerd":
+			err = mgr.containerdVolMgr.SyncOut(id)
 		}
 		if err != nil {
 			return fmt.Errorf("sync-out for volume backing %s for container %s failed: %v", mnt.Destination, id, err)
