@@ -11,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/pkg/profile"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
 )
@@ -69,6 +70,16 @@ func main() {
 		cli.BoolFlag{
 			Name:  "no-inner-docker-image-sharing",
 			Usage: "disable copy-on-write sharing of inner docker images between system containers; may increase container startup time and storage overhead",
+		},
+		cli.BoolFlag{
+			Name:   "cpu-profiling",
+			Usage:  "enable cpu-profiling data collection",
+			Hidden: true,
+		},
+		cli.BoolFlag{
+			Name:   "memory-profiling",
+			Usage:  "enable memory-profiling data collection",
+			Hidden: true,
 		},
 	}
 
@@ -138,6 +149,12 @@ func main() {
 
 		logrus.Info("Starting ...")
 
+		// If requested, launch cpu/mem profiling data collection.
+		profile, err := runProfiler(ctx)
+		if err != nil {
+			return err
+		}
+
 		mgr, err := newSysboxMgr(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to create sysbox-mgr: %v", err)
@@ -150,7 +167,7 @@ func main() {
 			syscall.SIGINT,
 			syscall.SIGTERM,
 			syscall.SIGQUIT)
-		go signalHandler(signalChan, mgr)
+		go signalHandler(signalChan, mgr, profile)
 
 		logrus.Infof("Listening on %v", mgr.grpcServer.GetAddr())
 		if err := mgr.Start(); err != nil {
@@ -167,8 +184,54 @@ func main() {
 	}
 }
 
+// Run cpu / memory profiling collection.
+func runProfiler(ctx *cli.Context) (interface{ Stop() }, error) {
+
+	var prof interface{ Stop() }
+
+	cpuProfOn := ctx.Bool("cpu-profiling")
+	memProfOn := ctx.Bool("memory-profiling")
+
+	// Cpu and Memory profiling options seem to be mutually exclused in pprof.
+	if cpuProfOn && memProfOn {
+		return nil, fmt.Errorf("Unsupported parameter combination: cpu and memory profiling")
+	}
+
+	// Typical / non-profiling case.
+	if !(cpuProfOn || memProfOn) {
+		return nil, nil
+	}
+
+	// Notice that 'NoShutdownHook' option is passed to profiler constructor to
+	// avoid this one reacting to 'sigterm' signal arrival. IOW, we want
+	// sysbox-fs signal handler to be the one stopping all profiling tasks.
+
+	if cpuProfOn {
+		prof = profile.Start(
+			profile.CPUProfile,
+			profile.ProfilePath("."),
+			profile.NoShutdownHook,
+		)
+		logrus.Info("Initiated cpu-profiling data collection.")
+	}
+
+	if memProfOn {
+		prof = profile.Start(
+			profile.MemProfile,
+			profile.ProfilePath("."),
+			profile.NoShutdownHook,
+		)
+		logrus.Info("Initiated memory-profiling data collection.")
+	}
+
+	return prof, nil
+}
+
 // sysbox-mgr signal handler goroutine.
-func signalHandler(signalChan chan os.Signal, mgr *SysboxMgr) {
+func signalHandler(
+	signalChan chan os.Signal,
+	mgr *SysboxMgr,
+	profile interface{ Stop() }) {
 
 	s := <-signalChan
 
@@ -176,6 +239,11 @@ func signalHandler(signalChan chan os.Signal, mgr *SysboxMgr) {
 
 	if err := mgr.Stop(); err != nil {
 		logrus.Warnf("Failed to terminate sysbox-mgr gracefully: %s", err)
+	}
+
+	// Stop cpu/mem profiling tasks.
+	if profile != nil {
+		profile.Stop()
 	}
 
 	logrus.Info("Exiting.")
