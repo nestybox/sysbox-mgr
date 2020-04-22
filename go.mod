@@ -13,11 +13,11 @@ require (
 	github.com/nestybox/sysbox-runc v0.0.0-00010101000000-000000000000
 	github.com/opencontainers/go-digest v1.0.0-rc1 // indirect
 	github.com/opencontainers/runc v0.0.0-00010101000000-000000000000
-	github.com/opencontainers/runtime-spec v1.0.2-0.20191218002532-bab266ed033b
+	github.com/opencontainers/runtime-spec v1.0.2
 	github.com/pkg/profile v1.4.0
 	github.com/sirupsen/logrus v1.4.2
 	github.com/urfave/cli v1.20.0
-	golang.org/x/sys v0.0.0-20191210023423-ac6580df4449
+	golang.org/x/sys v0.0.0-20200420163511-1957bb5e6d1f
 )
 
 replace github.com/nestybox/sysbox-ipc => ../sysbox-ipc
@@ -25,3 +25,7 @@ replace github.com/nestybox/sysbox-ipc => ../sysbox-ipc
 replace github.com/nestybox/sysbox-runc => ../sysbox-runc
 
 replace github.com/opencontainers/runc => ./../sysbox-runc
+
+replace github.com/godbus/dbus => github.com/godbus/dbus/v5 v5.0.3
+
+replace github.com/nestybox/libseccomp-golang => ../lib/seccomp-golang
