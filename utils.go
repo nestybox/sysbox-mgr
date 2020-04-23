@@ -292,7 +292,7 @@ func setupKubeletVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
 		}
 	}
 
-	return volMgr.New(hostDir)
+	return volMgr.New(hostDir, true)
 }
 
 func setupContainerdVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
@@ -304,9 +304,10 @@ func setupContainerdVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
 		return nil, fmt.Errorf("failed to create %v: %v", hostDir, err)
 	}
 
-	// The host dir that is bind-mounted into the sys container's /var/lib/containerd
+	// The host dir that is bind-mounted into the sys container's
+	// /var/lib/containerd/io.containerd.snapshotter.v1.overlayfs
 	// directory can't be on the following filesystems, as containerd inside the sys
-	// container does not support them (see sysbox issue #622).
+	// container does not support them.
 	unsupportedFs := map[string]int64{
 		"shiftfs": SHIFTFS_MAGIC,
 	}
@@ -317,11 +318,11 @@ func setupContainerdVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
 
 	for name, magic := range unsupportedFs {
 		if statfs.Type == magic {
-			return nil, fmt.Errorf("host dir for containerd vol mnager (%s) can't be on %v", hostDir, name)
+			return nil, fmt.Errorf("host dir for containerd vol manager (%s) can't be on %v", hostDir, name)
 		}
 	}
 
-	return volMgr.New(hostDir)
+	return volMgr.New(hostDir, true)
 }
 
 func setupWorkDirs() error {

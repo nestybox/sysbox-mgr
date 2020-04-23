@@ -293,10 +293,11 @@ func (mgr *SysboxMgr) unregister(id string) error {
 			err = mgr.dockerVolMgr.SyncOut(id)
 		case "/var/lib/kubelet":
 			err = mgr.kubeletVolMgr.SyncOut(id)
-		case "/var/lib/containerd":
+		case "/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs":
 			err = mgr.containerdVolMgr.SyncOut(id)
 		}
 		if err != nil {
+			logrus.Warnf("sync-out for volume backing %s for container %s failed: %v", mnt.Destination, id, err)
 			return fmt.Errorf("sync-out for volume backing %s for container %s failed: %v", mnt.Destination, id, err)
 		}
 	}
@@ -374,7 +375,7 @@ func (mgr *SysboxMgr) removeCont(id string) {
 			err = mgr.dockerVolMgr.DestroyVol(id)
 		case "/var/lib/kubelet":
 			err = mgr.kubeletVolMgr.DestroyVol(id)
-		case "/var/lib/containerd":
+		case "/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs":
 			err = mgr.containerdVolMgr.DestroyVol(id)
 		}
 		if err != nil {
@@ -428,7 +429,7 @@ func (mgr *SysboxMgr) reqMounts(id, rootfs string, uid, gid uint32, shiftUids bo
 			m, err = mgr.dockerVolMgr.CreateVol(id, rootfs, req.Dest, uid, gid, shiftUids, 0700)
 		case "/var/lib/kubelet":
 			m, err = mgr.kubeletVolMgr.CreateVol(id, rootfs, req.Dest, uid, gid, shiftUids, 0755)
-		case "/var/lib/containerd":
+		case "/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs":
 			m, err = mgr.containerdVolMgr.CreateVol(id, rootfs, req.Dest, uid, gid, shiftUids, 0700)
 		default:
 			err = fmt.Errorf("unknown mount request type")
@@ -605,7 +606,7 @@ func (mgr *SysboxMgr) pause(id string) error {
 			err = mgr.dockerVolMgr.SyncOut(id)
 		case "/var/lib/kubelet":
 			err = mgr.kubeletVolMgr.SyncOut(id)
-		case "/var/lib/containerd":
+		case "/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs":
 			err = mgr.containerdVolMgr.SyncOut(id)
 		}
 		if err != nil {
