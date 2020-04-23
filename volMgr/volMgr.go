@@ -41,15 +41,18 @@ type volInfo struct {
 
 type vmgr struct {
 	hostDir  string
+	sync     bool
 	volTable map[string]volInfo // cont id -> volume info
 	mu       sync.Mutex
 }
 
 // Creates a new instance of the volume manager.
 // 'hostDir' is the directory on the host which the manager will use for its operations
-func New(hostDir string) (intf.VolMgr, error) {
+// 'sync' indicates if the volume contents should be sync'd with those of the mountpoint.
+func New(hostDir string, sync bool) (intf.VolMgr, error) {
 	return &vmgr{
 		hostDir:  hostDir,
+		sync:     sync,
 		volTable: make(map[string]volInfo),
 	}, nil
 }
@@ -103,11 +106,13 @@ func (m *vmgr) CreateVol(id, rootfs, mountpoint string, uid, gid uint32, shiftUi
 		return nil, fmt.Errorf("failed to set ownership of volume %v: %v", volPath, err)
 	}
 
-	// sync the contents of container's mountpoint (if any) to the newly created volume ("sync-in")
-	if _, err := os.Stat(mountPath); err == nil {
-		if err = m.rsyncVol(mountPath, volPath, uid, gid, shiftUids); err != nil {
-			os.RemoveAll(volPath)
-			return nil, fmt.Errorf("volume sync-in failed: %v", err)
+	if m.sync {
+		// sync the contents of container's mountpoint (if any) to the newly created volume ("sync-in")
+		if _, err := os.Stat(mountPath); err == nil {
+			if err = m.rsyncVol(mountPath, volPath, uid, gid, shiftUids); err != nil {
+				os.RemoveAll(volPath)
+				return nil, fmt.Errorf("volume sync-in failed: %v", err)
+			}
 		}
 	}
 
@@ -155,6 +160,10 @@ func (m *vmgr) DestroyVol(id string) error {
 // Implements intf.VolMgr.SyncOut
 func (m *vmgr) SyncOut(id string) error {
 
+	if !m.sync {
+		return nil
+	}
+
 	m.mu.Lock()
 	vi, found := m.volTable[id]
 	if !found {
@@ -180,11 +189,23 @@ func (m *vmgr) SyncOut(id string) error {
 	// if the sync-out target exists, perform the rsync
 	if _, err := os.Stat(vi.mountPath); err == nil {
 		if err := m.rsyncVol(vi.volPath, vi.mountPath, 0, 0, vi.shiftUids); err != nil {
+
+			// For sync-outs, the operation may fail if the target is
+			// removed while we are doing the copy. In this is the case,
+			// we ignore the error since there is no data loss (the data
+			// being sync'd out would have been removed anyways).
+
+			_, err2 := os.Stat(vi.mountPath)
+			if err2 != nil && os.IsNotExist(err2) {
+				logrus.Debugf("volume sync-out for container %s skipped: target %s does not exist", id, vi.mountPath)
+				return nil
+			}
+
 			return fmt.Errorf("volume sync-out failed: %v", err)
 		}
 	}
 
-	logrus.Debugf("sync'd-out volume for container %s", id)
+	logrus.Debugf("Sync'd-out volume for container %s", id)
 	return nil
 }
 
@@ -217,9 +238,9 @@ func (m *vmgr) rsyncVol(src, dest string, uid, gid uint32, shiftUids bool) error
 
 	if shiftUids {
 		chown := "--chown=" + strconv.FormatUint(uint64(uid), 10) + ":" + strconv.FormatUint(uint64(gid), 10)
-		cmd = exec.Command("rsync", "-rauqH", "--delete", chown, srcDir, dest)
+		cmd = exec.Command("rsync", "-rauqH", "--delete", "--no-specials", "--no-devices", chown, srcDir, dest)
 	} else {
-		cmd = exec.Command("rsync", "-rauqH", "--delete", srcDir, dest)
+		cmd = exec.Command("rsync", "-rauqH", "--delete", "--no-specials", "--no-devices", srcDir, dest)
 	}
 
 	cmd.Stdout = &stdout
