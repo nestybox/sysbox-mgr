@@ -325,8 +325,8 @@ func TestSysboxPidFile(t *testing.T) {
 	pidFile := filepath.Join(testDir, "sysbox-mgr.pid")
 
 	// create sysbox pid file
-	if err := createSysboxPidFile(pidFile); err != nil {
-		t.Errorf("createSysboxPidFile() failed: %s", err)
+	if err := createPidFile(pidFile); err != nil {
+		t.Errorf("createPidFile() failed: %s", err)
 	}
 
 	// verify
@@ -336,13 +336,13 @@ func TestSysboxPidFile(t *testing.T) {
 	}
 
 	// create again (should fail)
-	if err := createSysboxPidFile(pidFile); err == nil {
-		t.Errorf("createSysboxPidFile() failed: expected error, got nil")
+	if err := createPidFile(pidFile); err == nil {
+		t.Errorf("createPidFile() failed: expected error, got nil")
 	}
 
 	// destroy the pid file
-	if err := destroySysboxPidFile(pidFile); err != nil {
-		t.Errorf("destroySysboxPidFile() failed: %s", err)
+	if err := destroyPidFile(pidFile); err != nil {
+		t.Errorf("destroyPidFile() failed: %s", err)
 	}
 
 	// verify
