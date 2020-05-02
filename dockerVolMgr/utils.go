@@ -94,15 +94,15 @@ func rsyncVol(src, dest string, uid, gid uint32, shiftUids bool, exclude string,
 
 		if len(exclude) > 0 {
 			if deleteAtRx {
-				cmd = exec.Command("rsync", "-rauqH", "--delete", "--exclude", exclude, chownOpt, srcDir, dest)
+				cmd = exec.Command("rsync", "-rauqlH", "--no-specials", "--no-devices", "--delete", "--exclude", exclude, chownOpt, srcDir, dest)
 			} else {
-				cmd = exec.Command("rsync", "-rauqH", "--exclude", exclude, chownOpt, srcDir, dest)
+				cmd = exec.Command("rsync", "-rauqlH", "--no-specials", "--no-devices", "--exclude", exclude, chownOpt, srcDir, dest)
 			}
 		} else {
 			if deleteAtRx {
-				cmd = exec.Command("rsync", "-rauqH", "--delete", chownOpt, srcDir, dest)
+				cmd = exec.Command("rsync", "-rauqlH", "--no-specials", "--no-devices", "--delete", chownOpt, srcDir, dest)
 			} else {
-				cmd = exec.Command("rsync", "-rauqH", chownOpt, srcDir, dest)
+				cmd = exec.Command("rsync", "-rauqlH", "--no-specials", "--no-devices", chownOpt, srcDir, dest)
 			}
 		}
 
@@ -110,15 +110,15 @@ func rsyncVol(src, dest string, uid, gid uint32, shiftUids bool, exclude string,
 
 		if len(exclude) > 0 {
 			if deleteAtRx {
-				cmd = exec.Command("rsync", "-rauqlH", "--delete", "--exclude", exclude, srcDir, dest)
+				cmd = exec.Command("rsync", "-rauqlH", "--no-specials", "--no-devices", "--delete", "--exclude", exclude, srcDir, dest)
 			} else {
-				cmd = exec.Command("rsync", "-rauqlH", "--exclude", exclude, srcDir, dest)
+				cmd = exec.Command("rsync", "-rauqlH", "--no-specials", "--no-devices", "--exclude", exclude, srcDir, dest)
 			}
 		} else {
 			if deleteAtRx {
-				cmd = exec.Command("rsync", "-rauqlH", "--delete", srcDir, dest)
+				cmd = exec.Command("rsync", "-rauqlH", "--no-specials", "--no-devices", "--delete", srcDir, dest)
 			} else {
-				cmd = exec.Command("rsync", "-rauqlH", srcDir, dest)
+				cmd = exec.Command("rsync", "-rauqlH", "--no-specials", "--no-devices", srcDir, dest)
 			}
 		}
 	}
