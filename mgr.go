@@ -48,30 +48,37 @@ type mntPrepRevInfo struct {
 	origGid uint32
 }
 
+type mountInfo struct {
+	kind   ipcLib.MntKind
+	mounts []specs.Mount
+}
+
 type containerInfo struct {
 	state        containerState
 	rootfs       string
 	mntPrepRev   []mntPrepRevInfo
-	mounts       []specs.Mount
+	mounts       []mountInfo
 	uidInfo      uidInfo
 	shiftfsMarks []configs.ShiftfsMount
 }
 
 type SysboxMgr struct {
-	grpcServer       *grpc.ServerStub
-	subidAlloc       intf.SubidAlloc
-	dockerVolMgr     intf.VolMgr
-	kubeletVolMgr    intf.VolMgr
-	containerdVolMgr intf.VolMgr
-	shiftfsMgr       intf.ShiftfsMgr
-	contTable        map[string]containerInfo // cont id -> cont info
-	ctLock           sync.Mutex
-	rootfsTable      map[string]string // cont rootfs -> cont id; used by rootfs monitor
-	rtLock           sync.Mutex
-	rootfsMonStop    chan int
-	rootfsWatcher    *fsnotify.Watcher
-	mntPrepTable     map[string]string // mount source -> cont id
-	mntPrepLock      sync.Mutex
+	grpcServer        *grpc.ServerStub
+	subidAlloc        intf.SubidAlloc
+	dockerVolMgr      intf.VolMgr
+	kubeletVolMgr     intf.VolMgr
+	containerdVolMgr  intf.VolMgr
+	shiftfsMgr        intf.ShiftfsMgr
+	linuxHeaderMounts []specs.Mount
+	libModMounts      []specs.Mount
+	contTable         map[string]containerInfo // cont id -> cont info
+	ctLock            sync.Mutex
+	rootfsTable       map[string]string // cont rootfs -> cont id; used by rootfs monitor
+	rtLock            sync.Mutex
+	rootfsMonStop     chan int
+	rootfsWatcher     *fsnotify.Watcher
+	mntPrepTable      map[string]string // mount source -> cont id
+	mntPrepLock       sync.Mutex
 }
 
 // newSysboxMgr creates an instance of the sysbox manager
@@ -119,16 +126,28 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		return nil, fmt.Errorf("failed to setup shiftfs mgr: %v", err)
 	}
 
+	linuxHeaderMounts, err := getLinuxHeaderMounts()
+	if err != nil {
+		return nil, fmt.Errorf("failed to compute linux header mounts: %v", err)
+	}
+
+	libModMounts, err := getLibModMounts()
+	if err != nil {
+		return nil, fmt.Errorf("failed to compute kernel-module mounts: %v", err)
+	}
+
 	mgr := &SysboxMgr{
-		subidAlloc:       subidAlloc,
-		dockerVolMgr:     dockerVolMgr,
-		kubeletVolMgr:    kubeletVolMgr,
-		containerdVolMgr: containerdVolMgr,
-		shiftfsMgr:       shiftfsMgr,
-		contTable:        make(map[string]containerInfo),
-		rootfsTable:      make(map[string]string),
-		rootfsMonStop:    make(chan int),
-		mntPrepTable:     make(map[string]string),
+		subidAlloc:        subidAlloc,
+		dockerVolMgr:      dockerVolMgr,
+		kubeletVolMgr:     kubeletVolMgr,
+		containerdVolMgr:  containerdVolMgr,
+		shiftfsMgr:        shiftfsMgr,
+		linuxHeaderMounts: linuxHeaderMounts,
+		libModMounts:      libModMounts,
+		contTable:         make(map[string]containerInfo),
+		rootfsTable:       make(map[string]string),
+		rootfsMonStop:     make(chan int),
+		mntPrepTable:      make(map[string]string),
 	}
 
 	cb := &grpc.ServerCallbacks{
@@ -288,17 +307,22 @@ func (mgr *SysboxMgr) unregister(id string) error {
 	// the sync periodically while the container is running (e.g., using a combination
 	// of fsnotify + rsync).
 	for _, mnt := range info.mounts {
-		switch mnt.Destination {
-		case "/var/lib/docker":
+
+		switch mnt.kind {
+
+		case ipcLib.MntVarLibDocker:
 			err = mgr.dockerVolMgr.SyncOut(id)
-		case "/var/lib/kubelet":
+
+		case ipcLib.MntVarLibKubelet:
 			err = mgr.kubeletVolMgr.SyncOut(id)
-		case "/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs":
+
+		case ipcLib.MntVarLibContainerdOvfs:
 			err = mgr.containerdVolMgr.SyncOut(id)
+
 		}
 		if err != nil {
-			logrus.Warnf("sync-out for volume backing %s for container %s failed: %v", mnt.Destination, id, err)
-			return fmt.Errorf("sync-out for volume backing %s for container %s failed: %v", mnt.Destination, id, err)
+			logrus.Warnf("sync-out for volume backing %s for container %s failed: %v", mnt.kind, id, err)
+			return fmt.Errorf("sync-out for volume backing %s for container %s failed: %v", mnt.kind, id, err)
 		}
 	}
 
@@ -370,16 +394,20 @@ func (mgr *SysboxMgr) removeCont(id string) {
 	for _, mnt := range info.mounts {
 		var err error
 
-		switch mnt.Destination {
-		case "/var/lib/docker":
+		switch mnt.kind {
+
+		case ipcLib.MntVarLibDocker:
 			err = mgr.dockerVolMgr.DestroyVol(id)
-		case "/var/lib/kubelet":
+
+		case ipcLib.MntVarLibKubelet:
 			err = mgr.kubeletVolMgr.DestroyVol(id)
-		case "/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs":
+
+		case ipcLib.MntVarLibContainerdOvfs:
 			err = mgr.containerdVolMgr.DestroyVol(id)
+
 		}
 		if err != nil {
-			logrus.Errorf("rootfsMon: failed to destroy volume backing %s for container %s: %s", mnt.Destination, id, err)
+			logrus.Errorf("rootfsMon: failed to destroy volume backing %s for container %s: %s", mnt.kind, id, err)
 		}
 	}
 
@@ -398,10 +426,6 @@ func (mgr *SysboxMgr) removeCont(id string) {
 
 func (mgr *SysboxMgr) reqMounts(id, rootfs string, uid, gid uint32, shiftUids bool, reqList []ipcLib.MountReqInfo) ([]specs.Mount, error) {
 
-	if len(reqList) == 0 {
-		return nil, fmt.Errorf("request list is empty!")
-	}
-
 	// get container info
 	mgr.ctLock.Lock()
 	info, found := mgr.contTable[id]
@@ -411,44 +435,72 @@ func (mgr *SysboxMgr) reqMounts(id, rootfs string, uid, gid uint32, shiftUids bo
 		return nil, fmt.Errorf("container %s is not registered", id)
 	}
 
-	// if this is a stopped container that is being re-started, no need to setup mounts
-	// (stopped containers keep their existing mounts until removed)
+	// if this is a stopped container that is being re-started, reuse its prior mounts
 	if info.state == restarted {
-		return info.mounts, nil
+		mounts := []specs.Mount{}
+		for _, mntInfo := range info.mounts {
+			mounts = append(mounts, mntInfo.mounts...)
+		}
+		return mounts, nil
 	}
 
-	// call appropriate handlers
-	mounts := []specs.Mount{}
+	// setup dirs that will be bind-mounted into container
+	containerMnts := []specs.Mount{}
+	mntInfos := []mountInfo{}
+
 	for _, req := range reqList {
 
 		var err error
 		m := []specs.Mount{}
 
-		switch req.Dest {
-		case "/var/lib/docker":
+		switch req.Kind {
+
+		case ipcLib.MntVarLibDocker:
 			m, err = mgr.dockerVolMgr.CreateVol(id, rootfs, req.Dest, uid, gid, shiftUids, 0700)
-		case "/var/lib/kubelet":
+
+		case ipcLib.MntVarLibKubelet:
 			m, err = mgr.kubeletVolMgr.CreateVol(id, rootfs, req.Dest, uid, gid, shiftUids, 0755)
-		case "/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs":
+
+		case ipcLib.MntVarLibContainerdOvfs:
 			m, err = mgr.containerdVolMgr.CreateVol(id, rootfs, req.Dest, uid, gid, shiftUids, 0700)
+
 		default:
-			err = fmt.Errorf("unknown mount request type")
+			err = fmt.Errorf("invalid mount request type: %s", req.Kind)
 		}
+
 		if err != nil {
-			return nil, fmt.Errorf("failed to create volume backing %s for container %s: %s", req.Dest, id, err)
+			return nil, fmt.Errorf("failed to setup mounts backing %s for container %s: %s", req.Dest, id, err)
 		}
-		mounts = append(mounts, m...)
+
+		mntInfos = append(mntInfos, mountInfo{kind: req.Kind, mounts: m})
+		containerMnts = append(containerMnts, m...)
 	}
 
-	if len(mounts) > 0 {
+	// Add the linux kernel header mounts to the sys container. This is
+	// needed to build or run apps that interact with the Linux kernel
+	// directly within a sys container. Note that there is no need to
+	// track mntInfo for these since we are not backing these with
+	// sysbox-mgr data stores.
+	containerMnts = append(containerMnts, mgr.linuxHeaderMounts...)
+
+	// Add the linux /lib/modules/<kernel> mounts to the sys
+	// container. This allows system container processes to verify the
+	// presence of modules via modprobe. System apps such as Docker and
+	// K8s do this. Note that this does not imply module
+	// loading/unloading is supported in a system container (it's
+	// not). It merely lets processes check if a module is loaded.
+	containerMnts = append(containerMnts, mgr.libModMounts...)
+
+	if len(mntInfos) > 0 {
 		info.rootfs = rootfs
-		info.mounts = mounts
+		info.mounts = mntInfos
+
 		mgr.ctLock.Lock()
 		mgr.contTable[id] = info
 		mgr.ctLock.Unlock()
 	}
 
-	return mounts, nil
+	return containerMnts, nil
 }
 
 func (mgr *SysboxMgr) prepMounts(id string, uid, gid uint32, shiftUids bool, prepList []ipcLib.MountPrepInfo) error {
@@ -601,20 +653,34 @@ func (mgr *SysboxMgr) pause(id string) error {
 	for _, mnt := range info.mounts {
 		var err error
 
-		switch mnt.Destination {
-		case "/var/lib/docker":
+		switch mnt.kind {
+
+		case ipcLib.MntVarLibDocker:
 			err = mgr.dockerVolMgr.SyncOut(id)
-		case "/var/lib/kubelet":
+
+		case ipcLib.MntVarLibKubelet:
 			err = mgr.kubeletVolMgr.SyncOut(id)
-		case "/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs":
+
+		case ipcLib.MntVarLibContainerdOvfs:
 			err = mgr.containerdVolMgr.SyncOut(id)
+
 		}
 		if err != nil {
-			return fmt.Errorf("sync-out for volume backing %s for container %s failed: %v", mnt.Destination, id, err)
+			return fmt.Errorf("sync-out for volume backing %s for container %s failed: %v", mnt.kind, id, err)
 		}
 	}
 
 	return nil
+}
+
+func (mgr *SysboxMgr) linuxHdrMounts(id, rootfs, mountpoint string, uid, gid uint32, shiftUids bool) ([]specs.Mount, error) {
+
+	// TODO: setup the header mounts
+
+	// if the req.Dest is for a header mount that we've not setup before, re-parse the /usr/src/linux-headers-<kern> dir to generate the mounts.
+
+	return nil, nil
+
 }
 
 func preFlightCheck() error {

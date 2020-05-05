@@ -204,7 +204,7 @@ func runProfiler(ctx *cli.Context) (interface{ Stop() }, error) {
 
 	// Notice that 'NoShutdownHook' option is passed to profiler constructor to
 	// avoid this one reacting to 'sigterm' signal arrival. IOW, we want
-	// sysbox-fs signal handler to be the one stopping all profiling tasks.
+	// sysbox-mgr signal handler to be the one stopping all profiling tasks.
 
 	if cpuProfOn {
 		prof = profile.Start(

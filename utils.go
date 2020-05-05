@@ -24,6 +24,8 @@ import (
 	"github.com/nestybox/sysbox-mgr/volMgr"
 	"github.com/opencontainers/runc/libcontainer/mount"
 	"github.com/opencontainers/runc/libcontainer/user"
+	"github.com/opencontainers/runc/libsysbox/sysbox"
+	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
 	"golang.org/x/sys/unix"
@@ -433,4 +435,235 @@ func createPidFile(pidFile string) error {
 
 func destroyPidFile(pidFile string) error {
 	return os.RemoveAll(pidFile)
+}
+
+// getLinuxHeaderMounts returns a list of read-only mounts of the host's linux kernel headers.
+func getLinuxHeaderMounts() ([]specs.Mount, error) {
+
+	kernelRel, err := sysbox.GetKernelRelease()
+	if err != nil {
+		return nil, err
+	}
+
+	kernelHdr := "linux-headers-" + kernelRel
+
+	path := filepath.Join("/usr/src/", kernelHdr)
+	if _, err := os.Stat(path); err != nil {
+		return nil, err
+	}
+
+	mounts := []specs.Mount{}
+
+	// follow symlinks as some distros (e.g., Ubuntu) heavily symlink the linux
+	// header directory
+	mounts, err = createMountSpec(
+		path,
+		path,
+		"bind",
+		[]string{"ro", "rbind", "rprivate"}, true, []string{"/usr/src"},
+	)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to create mount spec for linux headers at %s: %v", path, err)
+	}
+
+	return mounts, nil
+}
+
+// getLibModMount returns a list of read-only mount of the host's kernel modules dir (/lib/modules/<kernel-release>).
+func getLibModMounts() ([]specs.Mount, error) {
+
+	kernelRel, err := sysbox.GetKernelRelease()
+	if err != nil {
+		return nil, err
+	}
+
+	path := filepath.Join("/lib/modules/", kernelRel)
+	if _, err := os.Stat(path); err != nil {
+		return nil, err
+	}
+
+	mounts := []specs.Mount{}
+
+	// Do *not* follow symlinks as they normally point to the linux headers which we
+	// mount also (see getLinuxHeadersMount()).
+	mounts, err = createMountSpec(
+		path,
+		path,
+		"bind",
+		[]string{"ro", "rbind", "rprivate"}, true, []string{"/usr/src"},
+	)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to create mount spec for linux modules at %s: %v",
+			path, err)
+	}
+
+	return mounts, nil
+}
+
+// createMountSpec returns a mount spec with the given source, destination, type, and
+// options. 'source' must be an absolute path. 'dest' is absolute with respect to the
+// container's rootfs. If followSymlinks is true, this function follows symlinks under the
+// source path and returns additional mount specs to ensure the symlinks are valid at the
+// destination. If symlinkFilt is not empty, only symlinks that resolve to paths that
+// are prefixed by the symlinkFilt strings are allowed.
+func createMountSpec(source, dest, mountType string, mountOpt []string, followSymlinks bool, symlinkFilt []string) ([]specs.Mount, error) {
+
+	mounts := []specs.Mount{}
+	m := specs.Mount{
+		Source:      source,
+		Destination: dest,
+		Type:        mountType,
+		Options:     mountOpt,
+	}
+	mounts = append(mounts, m)
+
+	if followSymlinks {
+		links, err := followSymlinksUnder(source)
+		if err != nil {
+			return nil, fmt.Errorf("failed to follow symlinks under %s: %v", source, err)
+		}
+
+		if len(symlinkFilt) == 0 {
+			symlinkFilt = append(symlinkFilt, "")
+		}
+
+		// apply symlink filtering
+		for _, filt := range symlinkFilt {
+			filt = filepath.Clean(filt)
+			filtLinks := stringSliceRemoveMatch(links, func(s string) bool {
+				if strings.HasPrefix(s, filt+"/") {
+					return false
+				}
+				return true
+			})
+
+			if len(filtLinks) == 0 {
+				continue
+			}
+
+			lcp := longestCommonPath(filtLinks)
+			lcp = filepath.Clean(lcp)
+
+			// if the lcp is underneath the source, ignore it
+			if !strings.HasPrefix(lcp, source+"/") {
+				m := specs.Mount{
+					Source:      lcp,
+					Destination: lcp,
+					Type:        mountType,
+					Options:     mountOpt,
+				}
+				mounts = append(mounts, m)
+			}
+		}
+	}
+
+	return mounts, nil
+}
+
+// finds longest-common-path among the given absolute paths
+func longestCommonPath(paths []string) string {
+
+	if len(paths) == 0 {
+		return ""
+	} else if len(paths) == 1 {
+		return paths[0]
+	}
+
+	// find the shortest and longest paths in the set
+	shortest, longest := paths[0], paths[0]
+	for _, p := range paths[1:] {
+		if p < shortest {
+			shortest = p
+		} else if p > longest {
+			longest = p
+		}
+	}
+
+	// find the first 'i' common characters between the shortest and longest paths
+	for i := 0; i < len(shortest) && i < len(longest); i++ {
+		if shortest[i] != longest[i] {
+			return shortest[:i]
+		}
+	}
+
+	return shortest
+}
+
+// returns a list of all symbolic links under the given directory
+func followSymlinksUnder(dir string) ([]string, error) {
+
+	// walk dir; if file is symlink (use os.Lstat()), readlink() and add to slice
+	symlinks := []string{}
+
+	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		var (
+			fi       os.FileInfo
+			realpath string
+			link     string
+		)
+
+		if path == dir {
+			return nil
+		}
+		fi, err = os.Lstat(path)
+		if err != nil {
+			return fmt.Errorf("failed to lstat %s: %v", path, err)
+		}
+		if fi.Mode()&os.ModeSymlink == 0 {
+			return nil
+		}
+
+		link, err = os.Readlink(path)
+		if err != nil {
+			return fmt.Errorf("failed to resolve symlink at %s: %v", path, err)
+		}
+
+		if filepath.IsAbs(link) {
+			realpath = link
+		} else {
+			realpath = filepath.Join(filepath.Dir(path), link)
+		}
+
+		symlinks = append(symlinks, realpath)
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return symlinks, nil
+}
+
+// stringSliceRemoveMatch removes from slice 's' any elements for which the 'match'
+// function returns true.
+func stringSliceRemoveMatch(s []string, match func(string) bool) []string {
+	var r []string
+	for i := 0; i < len(s); i++ {
+		if !match(s[i]) {
+			r = append(r, s[i])
+		}
+	}
+	return r
+}
+
+// mountSliceRemove removes from slice 's' any elements which occur on slice 'db'; the
+// given function is used to compare elements.
+func mountSliceRemove(s, db []specs.Mount, cmp func(m1, m2 specs.Mount) bool) []specs.Mount {
+	var r []specs.Mount
+	for i := 0; i < len(s); i++ {
+		found := false
+		for _, e := range db {
+			if cmp(s[i], e) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			r = append(r, s[i])
+		}
+	}
+	return r
 }
