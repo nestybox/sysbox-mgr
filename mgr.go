@@ -16,6 +16,7 @@ import (
 	ipcLib "github.com/nestybox/sysbox-ipc/sysboxMgrLib"
 	intf "github.com/nestybox/sysbox-mgr/intf"
 	"github.com/nestybox/sysbox-mgr/shiftfsMgr"
+	utils "github.com/nestybox/sysbox/utils"
 	"github.com/opencontainers/runc/libcontainer/configs"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
@@ -685,7 +686,7 @@ func (mgr *SysboxMgr) linuxHdrMounts(id, rootfs, mountpoint string, uid, gid uin
 
 func preFlightCheck() error {
 	for _, prog := range progDeps {
-		if !cmdExists(prog) {
+		if !utils.CmdExists(prog) {
 			return fmt.Errorf("%s is not installed on host.", prog)
 		}
 	}

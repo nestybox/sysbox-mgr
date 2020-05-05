@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/opencontainers/runc/libcontainer/user"
+	"golang.org/x/sys/unix"
 )
 
 func compareSubidRanges(t *testing.T, want, got []user.SubID) {
@@ -352,4 +353,27 @@ func TestSysboxPidFile(t *testing.T) {
 		os.RemoveAll(pidFile)
 	}
 
+}
+
+func TestGetLibModMounts(t *testing.T) {
+
+	var utsname unix.Utsname
+	if err := unix.Uname(&utsname); err != nil {
+		t.Errorf("cfgLibModMount: uname failed: %v", err)
+	}
+
+	n := bytes.IndexByte(utsname.Release[:], 0)
+	path := filepath.Join("/lib/modules/", string(utsname.Release[:n]))
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return // skip test
+	}
+
+	mounts, err := getLibModMounts()
+	if err != nil {
+		t.Errorf("cfgLibModMount: returned error: %v", err)
+	}
+	m := mounts[0]
+	if (m.Destination != path) || (m.Source != path) || (m.Type != "bind") {
+		t.Errorf("cfgLibModMount: failed basic mount test")
+	}
 }
