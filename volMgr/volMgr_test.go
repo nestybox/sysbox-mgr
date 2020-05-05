@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"testing"
 
+	utils "github.com/nestybox/sysbox/utils"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
 )
@@ -88,46 +89,11 @@ func compareDirs(src, dest string) error {
 		return fmt.Errorf("failed walking path %v: %v", dest, err)
 	}
 
-	if !equalStrings(srcPaths, destPaths) {
+	if !utils.StringSliceEqual(srcPaths, destPaths) {
 		return fmt.Errorf("mismatch between %v and %v", srcPaths, destPaths)
 	}
 
 	return nil
-}
-
-func equalStrings(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
-func equalMount(a, b specs.Mount) bool {
-	if a.Source != b.Source ||
-		a.Destination != b.Destination ||
-		a.Type != b.Type ||
-		!equalStrings(a.Options, b.Options) {
-		return false
-	}
-
-	return true
-}
-
-func equalMountSlice(a, b []specs.Mount) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if !equalMount(a[i], b[i]) {
-			return false
-		}
-	}
-	return true
 }
 
 func testCreateVolWork(id, hostDir, rootfs, mountpoint string, uid, gid uint32, shiftUids bool) ([]specs.Mount, error) {
@@ -157,7 +123,7 @@ func testCreateVolWork(id, hostDir, rootfs, mountpoint string, uid, gid uint32, 
 	}
 
 	// check that CreateVol returned the expected mount
-	if !equalMountSlice(got, want) {
+	if !utils.MountSliceEqual(got, want) {
 		return nil, fmt.Errorf("CreateVol(%v, %v, %v, %v, %v, 0700) returned %v, want %v", id, rootfs, mountpoint, uid, gid, got, want)
 	}
 

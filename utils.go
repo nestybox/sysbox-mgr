@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -22,6 +21,7 @@ import (
 	"github.com/nestybox/sysbox-mgr/lib/dockerUtils"
 	"github.com/nestybox/sysbox-mgr/subidAlloc"
 	"github.com/nestybox/sysbox-mgr/volMgr"
+	utils "github.com/nestybox/sysbox/utils"
 	"github.com/opencontainers/runc/libcontainer/mount"
 	"github.com/opencontainers/runc/libcontainer/user"
 	"github.com/opencontainers/runc/libsysbox/sysbox"
@@ -34,14 +34,6 @@ import (
 const SHIFTFS_MAGIC int64 = 0x6a656a62
 
 var progDeps = []string{"rsync", "modprobe"}
-
-func cmdExists(name string) bool {
-	cmd := exec.Command("/bin/sh", "-c", "command -v "+name)
-	if err := cmd.Run(); err != nil {
-		return false
-	}
-	return true
-}
 
 func allocSubidRange(subID []user.SubID, size, min, max uint64) ([]user.SubID, error) {
 	var holeStart, holeEnd uint64
@@ -470,7 +462,7 @@ func getLinuxHeaderMounts() ([]specs.Mount, error) {
 	return mounts, nil
 }
 
-// getLibModMount returns a list of read-only mount of the host's kernel modules dir (/lib/modules/<kernel-release>).
+// getLibModMount returns a list of read-only mounts for the host's kernel modules dir (/lib/modules/<kernel-release>).
 func getLibModMounts() ([]specs.Mount, error) {
 
 	kernelRel, err := sysbox.GetKernelRelease()
@@ -532,7 +524,7 @@ func createMountSpec(source, dest, mountType string, mountOpt []string, followSy
 		// apply symlink filtering
 		for _, filt := range symlinkFilt {
 			filt = filepath.Clean(filt)
-			filtLinks := stringSliceRemoveMatch(links, func(s string) bool {
+			filtLinks := utils.StringSliceRemoveMatch(links, func(s string) bool {
 				if strings.HasPrefix(s, filt+"/") {
 					return false
 				}
@@ -635,35 +627,4 @@ func followSymlinksUnder(dir string) ([]string, error) {
 	}
 
 	return symlinks, nil
-}
-
-// stringSliceRemoveMatch removes from slice 's' any elements for which the 'match'
-// function returns true.
-func stringSliceRemoveMatch(s []string, match func(string) bool) []string {
-	var r []string
-	for i := 0; i < len(s); i++ {
-		if !match(s[i]) {
-			r = append(r, s[i])
-		}
-	}
-	return r
-}
-
-// mountSliceRemove removes from slice 's' any elements which occur on slice 'db'; the
-// given function is used to compare elements.
-func mountSliceRemove(s, db []specs.Mount, cmp func(m1, m2 specs.Mount) bool) []specs.Mount {
-	var r []specs.Mount
-	for i := 0; i < len(s); i++ {
-		found := false
-		for _, e := range db {
-			if cmp(s[i], e) {
-				found = true
-				break
-			}
-		}
-		if !found {
-			r = append(r, s[i])
-		}
-	}
-	return r
 }
