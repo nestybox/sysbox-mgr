@@ -483,7 +483,7 @@ func getLibModMounts() ([]specs.Mount, error) {
 		path,
 		path,
 		"bind",
-		[]string{"ro", "rbind", "rprivate"}, true, []string{"/usr/src"},
+		[]string{"ro", "rbind", "rprivate"}, false, []string{"/usr/src"},
 	)
 
 	if err != nil {
