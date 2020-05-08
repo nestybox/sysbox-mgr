@@ -29,6 +29,8 @@ replace github.com/nestybox/sysbox/utils => ../lib/utils
 
 replace github.com/nestybox/libseccomp-golang => ../lib/seccomp-golang
 
+replace github.com/nestybox/sysbox/lib/capability => ../lib/capability
+
 replace github.com/opencontainers/runc => ./../sysbox-runc
 
 replace github.com/godbus/dbus => github.com/godbus/dbus/v5 v5.0.3
