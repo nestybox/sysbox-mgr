@@ -199,7 +199,7 @@ func (mgr *SysboxMgr) Stop() error {
 
 	mgr.rootfsMonStop <- 1
 	if err := mgr.rootfsWatcher.Close(); err != nil {
-		return fmt.Errorf("failed to close rootfs rm fs watcher: %v", err)
+		logrus.Warnf("failed to close rootfs watcher: %v", err)
 	}
 
 	mgr.dockerVolMgr.SyncOutAndDestroyAll()
@@ -209,11 +209,11 @@ func (mgr *SysboxMgr) Stop() error {
 
 	pidFile := filepath.Join(sysboxRunDir, "sysmgr.pid")
 	if err := destroyPidFile(pidFile); err != nil {
-		return fmt.Errorf("failed to destroy sysbox pid file: %v", err)
+		logrus.Warnf("failed to destroy sysbox pid file: %v", err)
 	}
 
 	if err := cleanupWorkDirs(); err != nil {
-		return fmt.Errorf("failed to cleanup work dirs: %v", err)
+		logrus.Warnf("failed to cleanup work dirs: %v", err)
 	}
 
 	logrus.Info("Stopped.")
@@ -331,15 +331,28 @@ func (mgr *SysboxMgr) unregister(id string) error {
 	mgr.contTable[id] = info
 	mgr.ctLock.Unlock()
 
-	// setup rootfs watch (allows us to get notified when the container's rootfs is
-	// removed)
+	// setup rootfs watch (allows us to get notified when the container's rootfs is removed)
 	if info.rootfs != "" {
 		rootfs := sanitizeRootfs(id, info.rootfs)
+
 		mgr.rtLock.Lock()
 		mgr.rootfsTable[rootfs] = id
-		mgr.rtLock.Unlock()
 		mgr.rootfsWatcher.Add(rootfs)
 
+		// It may be the case that rootfs has been deleted by the time we tell the
+		// rootfsWatcher, which means the watcher won't catch the rootfs removal
+		// event. In this case, let's cancel the watch event and remove the
+		// sysbox-mgr state for the container.
+
+		if _, err := os.Stat(rootfs); os.IsNotExist(err) {
+			delete(mgr.rootfsTable, rootfs)
+			mgr.rootfsWatcher.Remove(rootfs)
+			mgr.rtLock.Unlock()
+			mgr.removeCont(id)
+			return nil
+		}
+
+		mgr.rtLock.Unlock()
 		logrus.Debugf("added fs watch on %s", rootfs)
 	}
 
@@ -359,11 +372,13 @@ func (mgr *SysboxMgr) rootfsMon() {
 				mgr.rtLock.Lock()
 				id, found := mgr.rootfsTable[rootfs]
 				if !found {
-					// event is for a file or sub-dir of a container's rootfs, not for the rootfs itself; ignore it
+					// ignore the event: it's either for a file or sub-dir of a
+					// container's rootfs, or for the rootfs itself but the event was
+					// canceled (see unregister()).
 					mgr.rtLock.Unlock()
 					break
 				}
-				logrus.Debugf("roofsMon: rm on %s", rootfs)
+				logrus.Debugf("rootfsMon: rm on %s", rootfs)
 				delete(mgr.rootfsTable, rootfs)
 				mgr.rtLock.Unlock()
 				mgr.rootfsWatcher.Remove(rootfs)
@@ -371,7 +386,7 @@ func (mgr *SysboxMgr) rootfsMon() {
 			}
 
 		case err := <-mgr.rootfsWatcher.Errors:
-			logrus.Errorf("roofsMon: rootfs watch error: %v", err)
+			logrus.Errorf("rootfsMon: rootfs watch error: %v", err)
 
 		case <-mgr.rootfsMonStop:
 			logrus.Debugf("rootfsMon exiting ...")
@@ -385,12 +400,12 @@ func (mgr *SysboxMgr) removeCont(id string) {
 
 	mgr.ctLock.Lock()
 	info, found := mgr.contTable[id]
-	mgr.ctLock.Unlock()
-
 	if !found {
-		logrus.Errorf("can't remove container %s; info not found in table", id)
+		mgr.ctLock.Unlock()
 		return
 	}
+	delete(mgr.contTable, id)
+	mgr.ctLock.Unlock()
 
 	for _, mnt := range info.mounts {
 		var err error
@@ -417,10 +432,6 @@ func (mgr *SysboxMgr) removeCont(id string) {
 			logrus.Errorf("rootfsMon: failed to free uid(gid) for container %s: %s", id, err)
 		}
 	}
-
-	mgr.ctLock.Lock()
-	delete(mgr.contTable, id)
-	mgr.ctLock.Unlock()
 
 	logrus.Infof("released resources for container %s", id)
 }

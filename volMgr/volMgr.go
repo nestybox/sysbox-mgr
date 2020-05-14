@@ -32,6 +32,7 @@ import (
 
 type volInfo struct {
 	volPath   string      // volume path in host
+	rootfs    string      // container rootfs
 	mountPath string      // container path where volume is mounted
 	uid       uint32      // uid owner for container
 	gid       uint32      // gid owner for container
@@ -76,6 +77,7 @@ func (m *vmgr) CreateVol(id, rootfs, mountpoint string, uid, gid uint32, shiftUi
 	}
 	vi := volInfo{
 		volPath:   volPath,
+		rootfs:    rootfs,
 		mountPath: mountPath,
 		uid:       uid,
 		gid:       gid,
@@ -172,6 +174,12 @@ func (m *vmgr) SyncOut(id string) error {
 	}
 	m.mu.Unlock()
 
+	// If the container's rootfs is gone, bail
+	if _, err := os.Stat(vi.rootfs); os.IsNotExist(err) {
+		logrus.Debugf("volume sync-out for container %s skipped: target %s does not exist", id, vi.rootfs)
+		return nil
+	}
+
 	// mountPath is the sync-out target; if it does not exist, create it (but only if we
 	// are going to be copying anything to it).
 	if _, err := os.Stat(vi.mountPath); os.IsNotExist(err) {
@@ -186,14 +194,14 @@ func (m *vmgr) SyncOut(id string) error {
 		}
 	}
 
-	// if the sync-out target exists, perform the rsync
+	// If the sync-out target exists, perform the rsync
 	if _, err := os.Stat(vi.mountPath); err == nil {
 		if err := m.rsyncVol(vi.volPath, vi.mountPath, 0, 0, vi.shiftUids); err != nil {
 
-			// For sync-outs, the operation may fail if the target is
-			// removed while we are doing the copy. In this is the case,
-			// we ignore the error since there is no data loss (the data
-			// being sync'd out would have been removed anyways).
+			// For sync-outs, the operation may fail if the target is removed while
+			// we are doing the copy. In this case we ignore the error since there
+			// is no data loss (the data being sync'd out would have been removed
+			// anyways).
 
 			_, err2 := os.Stat(vi.mountPath)
 			if err2 != nil && os.IsNotExist(err2) {

@@ -230,6 +230,12 @@ func (mgr *dockerVolMgr) SyncOut(id string) error {
 		skipImgCopy = true
 	}
 
+	// If the container's rootfs is gone, bail
+	if _, err := os.Stat(vi.rootfs); os.IsNotExist(err) {
+		logrus.Debugf("volume sync-out for container %s skipped: target %s does not exist", id, vi.rootfs)
+		return nil
+	}
+
 	if err := mgr.syncOutBaseVol(id, vi, skipImgCopy); err != nil {
 		return err
 	}
