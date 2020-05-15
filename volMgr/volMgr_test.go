@@ -106,7 +106,7 @@ func testCreateVolWork(id, hostDir, rootfs, mountpoint string, uid, gid uint32, 
 		},
 	}
 
-	mgr, err := New(hostDir, true)
+	mgr, err := New("testVolMgr", hostDir, true)
 	if err != nil {
 		return nil, fmt.Errorf("New(%v) returned %v", hostDir, err)
 	}
@@ -156,7 +156,7 @@ func TestDestroyVol(t *testing.T) {
 	}
 	defer cleanupTest(hostDir, rootfs)
 
-	mgr, err := New(hostDir, true)
+	mgr, err := New("testVolMgr", hostDir, true)
 	if err != nil {
 		t.Errorf("New(%v) returned %v", hostDir, err)
 	}
@@ -236,7 +236,7 @@ func testSyncInWork(t *testing.T, shiftUids bool) {
 	}
 
 	// create the volume mgr; this triggers the sync-in automatically.
-	mgr, err := New(hostDir, true)
+	mgr, err := New("testVolMgr", hostDir, true)
 	if err != nil {
 		t.Errorf("New(%v) returned %v", hostDir, err)
 	}
@@ -304,7 +304,7 @@ func testSyncOutWork(t *testing.T, shiftUids bool) {
 	defer cleanupTest(hostDir, rootfs)
 
 	// create the volume mgr
-	mgr, err := New(hostDir, true)
+	mgr, err := New("testVolMgr", hostDir, true)
 	if err != nil {
 		t.Errorf("New(%v) returned %v", hostDir, err)
 	}
@@ -395,7 +395,7 @@ func TestSyncInSkip(t *testing.T) {
 	defer cleanupTest(hostDir, rootfs)
 
 	// create the volMgr
-	mgr, err := New(hostDir, true)
+	mgr, err := New("testVolMgr", hostDir, true)
 	if err != nil {
 		t.Errorf("New(%v) returned %v", hostDir, err)
 	}
@@ -431,7 +431,7 @@ func TestSyncOutSkip(t *testing.T) {
 	defer cleanupTest(hostDir, rootfs)
 
 	// create the volMgr
-	mgr, err := New(hostDir, true)
+	mgr, err := New("testVolMgr", hostDir, true)
 	if err != nil {
 		t.Errorf("New(%v) returned %v", hostDir, err)
 	}

@@ -41,6 +41,7 @@ type volInfo struct {
 }
 
 type vmgr struct {
+	name     string
 	hostDir  string
 	sync     bool
 	volTable map[string]volInfo // cont id -> volume info
@@ -48,10 +49,12 @@ type vmgr struct {
 }
 
 // Creates a new instance of the volume manager.
-// 'hostDir' is the directory on the host which the manager will use for its operations
+// 'name' is the name for this volume manager.
+// 'hostDir' is the directory on the host which the manager will use for its operations.
 // 'sync' indicates if the volume contents should be sync'd with those of the mountpoint.
-func New(hostDir string, sync bool) (intf.VolMgr, error) {
+func New(name, hostDir string, sync bool) (intf.VolMgr, error) {
 	return &vmgr{
+		name:     name,
 		hostDir:  hostDir,
 		sync:     sync,
 		volTable: make(map[string]volInfo),
@@ -127,7 +130,7 @@ func (m *vmgr) CreateVol(id, rootfs, mountpoint string, uid, gid uint32, shiftUi
 		},
 	}
 
-	logrus.Debugf("created volume for container %s", id)
+	logrus.Debugf("%s: created volume for container %s", m.name, id)
 	return mounts, nil
 }
 
@@ -155,7 +158,7 @@ func (m *vmgr) DestroyVol(id string) error {
 	delete(m.volTable, id)
 	m.mu.Unlock()
 
-	logrus.Debugf("destroyed volume for container %s", id)
+	logrus.Debugf("%s: destroyed volume for container %s", m.name, id)
 	return nil
 }
 
@@ -176,7 +179,7 @@ func (m *vmgr) SyncOut(id string) error {
 
 	// If the container's rootfs is gone, bail
 	if _, err := os.Stat(vi.rootfs); os.IsNotExist(err) {
-		logrus.Debugf("volume sync-out for container %s skipped: target %s does not exist", id, vi.rootfs)
+		logrus.Debugf("%s: volume sync-out for container %s skipped: target %s does not exist", m.name, id, vi.rootfs)
 		return nil
 	}
 
@@ -205,7 +208,7 @@ func (m *vmgr) SyncOut(id string) error {
 
 			_, err2 := os.Stat(vi.mountPath)
 			if err2 != nil && os.IsNotExist(err2) {
-				logrus.Debugf("volume sync-out for container %s skipped: target %s does not exist", id, vi.mountPath)
+				logrus.Debugf("%s: volume sync-out for container %s skipped: target %s does not exist", m.name, id, vi.mountPath)
 				return nil
 			}
 
@@ -213,7 +216,7 @@ func (m *vmgr) SyncOut(id string) error {
 		}
 	}
 
-	logrus.Debugf("Sync'd-out volume for container %s", id)
+	logrus.Debugf("%s: sync'd-out volume for container %s", m.name, id)
 	return nil
 }
 
@@ -221,10 +224,10 @@ func (m *vmgr) SyncOut(id string) error {
 func (m *vmgr) SyncOutAndDestroyAll() {
 	for id, _ := range m.volTable {
 		if err := m.SyncOut(id); err != nil {
-			logrus.Warnf("failed to sync-out volumes for container %s: %s", id, err)
+			logrus.Warnf("%s: failed to sync-out volumes for container %s: %s", m.name, id, err)
 		}
 		if err := m.DestroyVol(id); err != nil {
-			logrus.Warnf("failed to destroy volumes for container %s: %s", id, err)
+			logrus.Warnf("%s: failed to destroy volumes for container %s: %s", m.name, id, err)
 		}
 	}
 }
