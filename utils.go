@@ -257,7 +257,7 @@ func setupDockerVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
 		logrus.Infof("Inner docker image sharing disabled.")
 	}
 
-	return dockerVolMgr.New(hostDir, innerImgSharing)
+	return dockerVolMgr.New("dockerVolMgr", hostDir, innerImgSharing)
 }
 
 func setupKubeletVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
@@ -286,7 +286,7 @@ func setupKubeletVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
 		}
 	}
 
-	return volMgr.New(hostDir, true)
+	return volMgr.New("kubeletVolMgr", hostDir, true)
 }
 
 func setupContainerdVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
@@ -316,7 +316,7 @@ func setupContainerdVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
 		}
 	}
 
-	return volMgr.New(hostDir, true)
+	return volMgr.New("containerdVolMgr", hostDir, true)
 }
 
 func setupWorkDirs() error {

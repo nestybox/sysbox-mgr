@@ -74,6 +74,7 @@ type imgVolInfo struct {
 }
 
 type dockerVolMgr struct {
+	name            string
 	innerImgSharing bool
 	workspace       string
 	baseVolDir      string
@@ -86,10 +87,11 @@ type dockerVolMgr struct {
 }
 
 // Creates a new instance of the dockerVolMgr
-func New(workspace string, innerImgSharing bool) (intf.VolMgr, error) {
+func New(name, workspace string, innerImgSharing bool) (intf.VolMgr, error) {
 	var err error
 
 	mgr := &dockerVolMgr{
+		name:            name,
 		workspace:       workspace,
 		innerImgSharing: innerImgSharing,
 		volTable:        make(map[string]*volInfo),
@@ -232,7 +234,7 @@ func (mgr *dockerVolMgr) SyncOut(id string) error {
 
 	// If the container's rootfs is gone, bail
 	if _, err := os.Stat(vi.rootfs); os.IsNotExist(err) {
-		logrus.Debugf("volume sync-out for container %s skipped: target %s does not exist", id, vi.rootfs)
+		logrus.Debugf("%s: volume sync-out for container %s skipped: target %s does not exist", mgr.name, id, vi.rootfs)
 		return nil
 	}
 
@@ -253,10 +255,10 @@ func (mgr *dockerVolMgr) SyncOut(id string) error {
 func (mgr *dockerVolMgr) SyncOutAndDestroyAll() {
 	for id, _ := range mgr.volTable {
 		if err := mgr.SyncOut(id); err != nil {
-			logrus.Warnf("failed to sync-out volumes for container %s: %s", id, err)
+			logrus.Warnf("%s: failed to sync-out volumes for container %s: %s", mgr.name, id, err)
 		}
 		if err := mgr.DestroyVol(id); err != nil {
-			logrus.Warnf("failed to destroy volumes for container %s: %s", id, err)
+			logrus.Warnf("%s: failed to destroy volumes for container %s: %s", mgr.name, id, err)
 		}
 	}
 }
@@ -296,7 +298,7 @@ func (mgr *dockerVolMgr) createBaseVol(id string, mountpoint string, vi *volInfo
 		},
 	}
 
-	logrus.Debugf("Created base vol for container %v", id)
+	logrus.Debugf("%s: created base vol for container %v", mgr.name, id)
 
 	return mnt, nil
 }
@@ -307,7 +309,7 @@ func (mgr *dockerVolMgr) destroyBaseVol(id string, vi *volInfo) error {
 		return fmt.Errorf("failed to destroy base vol at %s: %s", vi.basePath, err)
 	}
 
-	logrus.Debugf("Destroyed base vol for container %v", id)
+	logrus.Debugf("%s: destroyed base vol for container %v", mgr.name, id)
 
 	return nil
 }
@@ -332,7 +334,7 @@ func (mgr *dockerVolMgr) syncInBaseVol(id string, vi *volInfo, skipImgCopy bool)
 		return fmt.Errorf("volume sync-in for %v failed: %v", id, err)
 	}
 
-	logrus.Debugf("Sync'd-in base vol for container %v", id)
+	logrus.Debugf("%s: sync'd-in base vol for container %v", mgr.name, id)
 
 	return nil
 }
@@ -369,7 +371,7 @@ func (mgr *dockerVolMgr) syncOutBaseVol(id string, vi *volInfo, skipImgCopy bool
 		}
 	}
 
-	logrus.Debugf("Sync'd-out base vol for container %v", id)
+	logrus.Debugf("%s: sync'd-out base vol for container %v", mgr.name, id)
 
 	return nil
 }
@@ -499,7 +501,7 @@ func (mgr *dockerVolMgr) createImgVol(imgID string, vi *volInfo) (*imgVolInfo, e
 		contImgPath: contImgPath,
 	}
 
-	logrus.Debugf("Created image vol for image %v", imgID)
+	logrus.Debugf("%s: created image vol for image %v", mgr.name, imgID)
 
 	return imgVi, nil
 }
@@ -510,7 +512,7 @@ func (mgr *dockerVolMgr) destroyImgVol(imgID string, imgVi *imgVolInfo) error {
 		return fmt.Errorf("failed to destroy image vol at %s: %s", imgVi.volPath, err)
 	}
 
-	logrus.Debugf("Destroyed image vol for image %v", imgID)
+	logrus.Debugf("%s: destroyed image vol for image %v", mgr.name, imgID)
 
 	return nil
 }
@@ -566,7 +568,7 @@ func (mgr *dockerVolMgr) createCowVol(id string, imgVi *imgVolInfo, vi *volInfo)
 	}
 
 	vi.cowPath = cowVol
-	logrus.Debugf("Created cow vol for container %v", id)
+	logrus.Debugf("%s: created cow vol for container %v", mgr.name, id)
 	return cowMnts, nil
 }
 
@@ -674,10 +676,10 @@ func (mgr *dockerVolMgr) destroyCowVol(id string, vi *volInfo, imgVi *imgVolInfo
 		go func() {
 			defer wg.Done()
 			if err := syscall.Unmount(mntPath, unix.MNT_DETACH); err != nil {
-				logrus.Debugf("failed to unmount ovfs from %s: %s", mntPath, err)
+				logrus.Debugf("%s: failed to unmount ovfs from %s: %s", mgr.name, mntPath, err)
 				errch <- err
 			}
-			logrus.Debugf("umounted ovfs from %s", mntPath)
+			logrus.Debugf("%s: umounted ovfs from %s", mgr.name, mntPath)
 		}()
 	}
 
@@ -734,6 +736,6 @@ func (mgr *dockerVolMgr) syncOutCowVol(id string, vi *volInfo) error {
 	default:
 	}
 
-	logrus.Debugf("Sync'd-out cow vol for container %v", id)
+	logrus.Debugf("%s: sync'd-out cow vol for container %v", mgr.name, id)
 	return nil
 }

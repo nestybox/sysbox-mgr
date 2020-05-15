@@ -281,7 +281,7 @@ func (mgr *SysboxMgr) unregister(id string) error {
 
 	if len(info.shiftfsMarks) != 0 {
 		if err = mgr.shiftfsMgr.Unmark(id, info.shiftfsMarks); err != nil {
-			return fmt.Errorf("failed to remove shiftfs marks for container %s: %s", id, err)
+			logrus.Warnf("failed to remove shiftfs marks for container %s: %s", id, err)
 		}
 		info.shiftfsMarks = []configs.ShiftfsMount{}
 	}
@@ -291,8 +291,7 @@ func (mgr *SysboxMgr) unregister(id string) error {
 	for _, revInfo := range info.mntPrepRev {
 		if revInfo.chown {
 			if err = rChown(revInfo.path, revInfo.origUid, revInfo.origGid); err != nil {
-				mgr.mntPrepLock.Unlock()
-				return fmt.Errorf("failed to revert ownership of mount source at %s: %s", revInfo.path, err)
+				logrus.Warnf("failed to revert ownership of mount source at %s: %s", revInfo.path, err)
 			}
 		}
 		delete(mgr.mntPrepTable, revInfo.path)
@@ -319,11 +318,10 @@ func (mgr *SysboxMgr) unregister(id string) error {
 
 		case ipcLib.MntVarLibContainerdOvfs:
 			err = mgr.containerdVolMgr.SyncOut(id)
-
 		}
+
 		if err != nil {
 			logrus.Warnf("sync-out for volume backing %s for container %s failed: %v", mnt.kind, id, err)
-			return fmt.Errorf("sync-out for volume backing %s for container %s failed: %v", mnt.kind, id, err)
 		}
 	}
 
