@@ -18,9 +18,9 @@ import (
 
 	"github.com/nestybox/sysbox-mgr/dockerVolMgr"
 	intf "github.com/nestybox/sysbox-mgr/intf"
-	"github.com/nestybox/sysbox-mgr/lib/dockerUtils"
 	"github.com/nestybox/sysbox-mgr/subidAlloc"
 	"github.com/nestybox/sysbox-mgr/volMgr"
+	"github.com/nestybox/sysbox/dockerUtils"
 	utils "github.com/nestybox/sysbox/utils"
 	"github.com/opencontainers/runc/libcontainer/mount"
 	"github.com/opencontainers/runc/libcontainer/user"

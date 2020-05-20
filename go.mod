@@ -11,8 +11,9 @@ require (
 	github.com/mrunalp/fileutils v0.0.0-20171103030105-7d4729fb3618
 	github.com/nestybox/sysbox-ipc v0.0.0-00010101000000-000000000000
 	github.com/nestybox/sysbox-runc v0.0.0-00010101000000-000000000000
+	github.com/nestybox/sysbox/dockerUtils v0.0.0-00010101000000-000000000000
 	github.com/nestybox/sysbox/utils v0.0.0-00010101000000-000000000000
-	github.com/opencontainers/go-digest v1.0.0-rc1 // indirect
+	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/runc v0.0.0-00010101000000-000000000000
 	github.com/opencontainers/runtime-spec v1.0.2
 	github.com/pkg/profile v1.4.0
@@ -26,6 +27,8 @@ replace github.com/nestybox/sysbox-ipc => ../sysbox-ipc
 replace github.com/nestybox/sysbox-runc => ../sysbox-runc
 
 replace github.com/nestybox/sysbox/utils => ../lib/utils
+
+replace github.com/nestybox/sysbox/dockerUtils => ../lib/dockerUtils
 
 replace github.com/nestybox/libseccomp-golang => ../lib/seccomp-golang
 

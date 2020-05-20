@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"github.com/nestybox/sysbox-mgr/lib/dockerUtils"
+	"github.com/nestybox/sysbox/dockerUtils"
 )
 
 func queryDockerForImageID(id string) (string, error) {
