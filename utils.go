@@ -33,7 +33,7 @@ import (
 
 const SHIFTFS_MAGIC int64 = 0x6a656a62
 
-var progDeps = []string{"rsync", "modprobe"}
+var progDeps = []string{"rsync", "modprobe", "iptables"}
 
 func allocSubidRange(subID []user.SubID, size, min, max uint64) ([]user.SubID, error) {
 	var holeStart, holeEnd uint64
@@ -249,7 +249,7 @@ func setupDockerVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
 		}
 	}
 
-	innerImgSharing := !ctx.GlobalBool("no-inner-docker-image-sharing")
+	innerImgSharing := ctx.GlobalBoolT("inner-docker-image-sharing")
 
 	if innerImgSharing {
 		logrus.Infof("Inner docker image sharing enabled.")

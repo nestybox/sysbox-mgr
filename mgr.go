@@ -64,6 +64,7 @@ type containerInfo struct {
 }
 
 type SysboxMgr struct {
+	mgrCfg            *ipcLib.MgrConfig
 	grpcServer        *grpc.ServerStub
 	subidAlloc        intf.SubidAlloc
 	dockerVolMgr      intf.VolMgr
@@ -137,7 +138,18 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		return nil, fmt.Errorf("failed to compute kernel-module mounts: %v", err)
 	}
 
+	mgrCfg := &ipcLib.MgrConfig{
+		AliasDns: ctx.GlobalBoolT("alias-dns"),
+	}
+
+	if mgrCfg.AliasDns == true {
+		logrus.Infof("Sys container DNS aliasing enabled.")
+	} else {
+		logrus.Infof("Sys container DNS aliasing disabled.")
+	}
+
 	mgr := &SysboxMgr{
+		mgrCfg:            mgrCfg,
 		subidAlloc:        subidAlloc,
 		dockerVolMgr:      dockerVolMgr,
 		kubeletVolMgr:     kubeletVolMgr,
@@ -222,7 +234,7 @@ func (mgr *SysboxMgr) Stop() error {
 }
 
 // Registers a container with sysbox-mgr
-func (mgr *SysboxMgr) register(id string) error {
+func (mgr *SysboxMgr) register(id string) (*ipcLib.MgrConfig, error) {
 
 	mgr.ctLock.Lock()
 	info, found := mgr.contTable[id]
@@ -235,15 +247,17 @@ func (mgr *SysboxMgr) register(id string) error {
 		}
 		mgr.contTable[id] = info
 		mgr.ctLock.Unlock()
+
 		logrus.Infof("registered new container %s", id)
-		return nil
+		return mgr.mgrCfg, nil
 	}
 
 	// re-started container
 	if info.state != stopped {
 		mgr.ctLock.Unlock()
-		return fmt.Errorf("redundant container registration for container %s", id)
+		return nil, fmt.Errorf("redundant container registration for container %s", id)
 	}
+
 	info.state = restarted
 	mgr.contTable[id] = info
 	mgr.ctLock.Unlock()
@@ -259,7 +273,7 @@ func (mgr *SysboxMgr) register(id string) error {
 	}
 
 	logrus.Infof("registered container %s", id)
-	return nil
+	return mgr.mgrCfg, nil
 }
 
 // Unregisters a container with sysbox-mgr

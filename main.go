@@ -67,9 +67,13 @@ func main() {
 			Value: subidRangeSize,
 			Usage: "subid allocator range (must be a multiple of 64K and <= 4G)",
 		},
-		cli.BoolFlag{
-			Name:  "no-inner-docker-image-sharing",
-			Usage: "disable copy-on-write sharing of inner docker images between system containers; may increase container startup time and storage overhead",
+		cli.BoolTFlag{
+			Name:  "inner-docker-image-sharing",
+			Usage: "enables copy-on-write sharing of inner docker images between system containers; speeds up container start time and reduces storage overhead for containers that come preloaded with inner Docker images (default = true).",
+		},
+		cli.BoolTFlag{
+			Name:  "alias-dns",
+			Usage: "aliases the DNS IP inside the system container to ensure it never has a localhost address; required for system containers on user-defined Docker bridge networks (default = true)",
 		},
 		cli.BoolFlag{
 			Name:   "cpu-profiling",
