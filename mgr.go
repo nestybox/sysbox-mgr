@@ -7,7 +7,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"sync"
 	"syscall"
 
@@ -95,12 +94,6 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 	err = setupWorkDirs()
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup the work dir: %v", err)
-	}
-
-	pidFile := filepath.Join(sysboxRunDir, "sysmgr.pid")
-	err = createPidFile(pidFile)
-	if err != nil {
-		return nil, fmt.Errorf("refusing to start: %s", err)
 	}
 
 	subidAlloc, err := setupSubidAlloc(ctx)
@@ -218,11 +211,6 @@ func (mgr *SysboxMgr) Stop() error {
 	mgr.kubeletVolMgr.SyncOutAndDestroyAll()
 	mgr.containerdVolMgr.SyncOutAndDestroyAll()
 	mgr.shiftfsMgr.UnmarkAll()
-
-	pidFile := filepath.Join(sysboxRunDir, "sysmgr.pid")
-	if err := destroyPidFile(pidFile); err != nil {
-		logrus.Warnf("failed to destroy sysbox pid file: %v", err)
-	}
 
 	if err := cleanupWorkDirs(); err != nil {
 		logrus.Warnf("failed to cleanup work dirs: %v", err)
