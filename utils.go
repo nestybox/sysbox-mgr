@@ -382,6 +382,10 @@ func rChown(path string, uid, gid uint32) error {
 	return filepath.Walk(path, func(name string, info os.FileInfo, err error) error {
 		if err == nil {
 			err = os.Chown(name, int(uid), int(gid))
+			if os.IsNotExist(err) {
+				logrus.Debugf("failed to change ownership of %s: %s", name, err)
+				return nil
+			}
 		}
 		return err
 	})
