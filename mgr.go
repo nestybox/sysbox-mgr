@@ -15,6 +15,7 @@ import (
 	ipcLib "github.com/nestybox/sysbox-ipc/sysboxMgrLib"
 	intf "github.com/nestybox/sysbox-mgr/intf"
 	"github.com/nestybox/sysbox-mgr/shiftfsMgr"
+	"github.com/nestybox/sysbox/dockerUtils"
 	utils "github.com/nestybox/sysbox/utils"
 	"github.com/opencontainers/runc/libcontainer/configs"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
@@ -60,6 +61,7 @@ type containerInfo struct {
 	mounts       []mountInfo
 	uidInfo      uidInfo
 	shiftfsMarks []configs.ShiftfsMount
+	autoRemove   bool
 }
 
 type SysboxMgr struct {
@@ -180,7 +182,7 @@ func (mgr *SysboxMgr) Start() error {
 	}
 	mgr.rootfsWatcher = w
 
-	// start the the rootfs monitor (listens for rootfs watch events)
+	// start the rootfs monitor (listens for rootfs watch events)
 	go mgr.rootfsMon()
 
 	logrus.Info("Ready ...")
@@ -300,36 +302,16 @@ func (mgr *SysboxMgr) unregister(id string) error {
 	}
 	mgr.mntPrepLock.Unlock()
 
-	// Request the volume managers to sync back their contents to the container's rootfs.
-	//
-	// Note that we do this when the container is stopped, not when it's running. This
-	// means we take the performance hit on container stop. The performance hit is a
-	// function of how many changes the sys container did on the directory where the
-	// volume is mounted.  If in the future we think the hit is too much, we could do
-	// the sync periodically while the container is running (e.g., using a combination
-	// of fsnotify + rsync).
-	for _, mnt := range info.mounts {
-
-		switch mnt.kind {
-
-		case ipcLib.MntVarLibDocker:
-			err = mgr.dockerVolMgr.SyncOut(id)
-
-		case ipcLib.MntVarLibKubelet:
-			err = mgr.kubeletVolMgr.SyncOut(id)
-
-		case ipcLib.MntVarLibContainerdOvfs:
-			err = mgr.containerdVolMgr.SyncOut(id)
-		}
-
-		if err != nil {
-			logrus.Warnf("sync-out for volume backing %s for container %s failed: %v", mnt.kind, id, err)
-		}
-	}
-
 	mgr.ctLock.Lock()
 	mgr.contTable[id] = info
 	mgr.ctLock.Unlock()
+
+	// Request the volume managers to copy their contents to the container's rootfs.
+	if !info.autoRemove {
+		if err := mgr.volSyncOut(id, info); err != nil {
+			logrus.Warnf("sync-out for container %s failed: %v", id, err)
+		}
+	}
 
 	// setup rootfs watch (allows us to get notified when the container's rootfs is removed)
 	if info.rootfs != "" {
@@ -357,6 +339,32 @@ func (mgr *SysboxMgr) unregister(id string) error {
 	}
 
 	logrus.Infof("unregistered container %s", id)
+	return nil
+}
+
+func (mgr *SysboxMgr) volSyncOut(id string, info containerInfo) error {
+	var err error
+	failedVols := []string{}
+
+	for _, mnt := range info.mounts {
+		switch mnt.kind {
+		case ipcLib.MntVarLibDocker:
+			err = mgr.dockerVolMgr.SyncOut(id)
+		case ipcLib.MntVarLibKubelet:
+			err = mgr.kubeletVolMgr.SyncOut(id)
+		case ipcLib.MntVarLibContainerdOvfs:
+			err = mgr.containerdVolMgr.SyncOut(id)
+		}
+
+		if err != nil {
+			failedVols = append(failedVols, mnt.kind.String())
+		}
+	}
+
+	if len(failedVols) > 0 {
+		return fmt.Errorf("sync-out for volume backing %s failed: %v", failedVols, err)
+	}
+
 	return nil
 }
 
@@ -461,7 +469,6 @@ func (mgr *SysboxMgr) reqMounts(id, rootfs string, uid, gid uint32, shiftUids bo
 	mntInfos := []mountInfo{}
 
 	for _, req := range reqList {
-
 		var err error
 		m := []specs.Mount{}
 
@@ -512,7 +519,53 @@ func (mgr *SysboxMgr) reqMounts(id, rootfs string, uid, gid uint32, shiftUids bo
 		mgr.ctLock.Unlock()
 	}
 
+	// Dispatch a thread that checks if the container will be auto-removed after it stops
+	go mgr.autoRemoveCheck(id)
+
 	return containerMnts, nil
+}
+
+// autoRemoveCheck finds out (best effort) if the container will be automatically
+// removed after being stopped. This allows us to skip copying back the contents
+// of the sysbox-mgr volumes to the container's rootfs when the container is stopped
+// (such a copy would not make sense since the containers rootfs will be destroyed
+// anyway).
+func (mgr *SysboxMgr) autoRemoveCheck(id string) {
+
+	mgr.ctLock.Lock()
+	info, found := mgr.contTable[id]
+	if !found {
+		mgr.ctLock.Unlock()
+		return
+	}
+	mgr.ctLock.Unlock()
+
+	logrus.Debugf("autoRemoveCheck: Docker query start for %s\n", id)
+
+	docker, err := dockerUtils.DockerConnect()
+	if err != nil {
+		logrus.Debugf("autoRemoveCheck: Docker connection failed for %s: %s\n", id, err)
+		return
+	}
+
+	ci, err := docker.ContainerGetInfo(id)
+	if err != nil {
+		logrus.Debugf("autoRemoveCheck: Docker query for %s failed: %s\n", id, err)
+		return
+	}
+
+	mgr.ctLock.Lock()
+	info, found = mgr.contTable[id]
+	if !found {
+		mgr.ctLock.Unlock()
+		return
+	}
+
+	info.autoRemove = ci.AutoRemove
+	mgr.contTable[id] = info
+	mgr.ctLock.Unlock()
+
+	logrus.Debugf("autoRemoveCheck: done for %s (autoRemove = %v)\n", id, info.autoRemove)
 }
 
 func (mgr *SysboxMgr) prepMounts(id string, uid, gid uint32, shiftUids bool, prepList []ipcLib.MountPrepInfo) error {
@@ -683,16 +736,6 @@ func (mgr *SysboxMgr) pause(id string) error {
 	}
 
 	return nil
-}
-
-func (mgr *SysboxMgr) linuxHdrMounts(id, rootfs, mountpoint string, uid, gid uint32, shiftUids bool) ([]specs.Mount, error) {
-
-	// TODO: setup the header mounts
-
-	// if the req.Dest is for a header mount that we've not setup before, re-parse the /usr/src/linux-headers-<kern> dir to generate the mounts.
-
-	return nil, nil
-
 }
 
 func preFlightCheck() error {

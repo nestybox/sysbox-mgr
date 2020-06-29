@@ -24,12 +24,12 @@ func queryDockerForImageID(id string) (string, error) {
 		return "", err
 	}
 
-	container, err := docker.GetContainer(id)
+	imageID, err := docker.ContainerGetImageID(id)
 	if err != nil {
 		return "", err
 	}
 
-	return container.ImageID, nil
+	return imageID, nil
 }
 
 // getContainerImage returns the container image ID of the given container.
