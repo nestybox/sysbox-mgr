@@ -112,7 +112,7 @@ func (m *vmgr) CreateVol(id, rootfs, mountpoint string, uid, gid uint32, shiftUi
 	}
 
 	if m.sync {
-		// sync the contents of container's mountpoint (if any) to the newly created volume ("sync-in")
+		// sync the contents of container's mountpoint to the newly created volume ("sync-in")
 		if _, err := os.Stat(mountPath); err == nil {
 			if err = m.rsyncVol(mountPath, volPath, uid, gid, shiftUids); err != nil {
 				os.RemoveAll(volPath)
@@ -237,12 +237,12 @@ func (m *vmgr) SyncOutAndDestroyAll() {
 func (m *vmgr) rsyncVol(src, dest string, uid, gid uint32, shiftUids bool) error {
 
 	var cmd *exec.Cmd
-	var stdout, stderr bytes.Buffer
+	var output bytes.Buffer
 
 	srcDir := src + "/"
 
 	// Note: rsync uses file modification time and size to determine if a sync is
-	// needed. This should be fine for sync'ing the sys container's directories given,
+	// needed. This should be fine for sync'ing the sys container's directories,
 	// assuming the probability of files being different yet having the same size &
 	// timestamp is low. If this assumption changes we could pass the `--checksum` option
 	// to rsync, but this will slow the copy operation significantly.
@@ -254,12 +254,12 @@ func (m *vmgr) rsyncVol(src, dest string, uid, gid uint32, shiftUids bool) error
 		cmd = exec.Command("rsync", "-rauqlH", "--no-specials", "--no-devices", "--delete", srcDir, dest)
 	}
 
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	cmd.Stdout = &output
+	cmd.Stderr = &output
 
 	err := cmd.Run()
 	if err != nil {
-		return fmt.Errorf("failed to sync %s to %s: %v %v\n", srcDir, dest, string(stdout.Bytes()), err)
+		return fmt.Errorf("failed to sync %s to %s: %v %v\n", srcDir, dest, string(output.Bytes()), err)
 	}
 
 	return nil
