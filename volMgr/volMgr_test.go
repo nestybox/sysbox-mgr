@@ -12,7 +12,7 @@ import (
 	"syscall"
 	"testing"
 
-	utils "github.com/nestybox/sysbox/utils"
+	utils "github.com/nestybox/sysbox-libs/utils"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
 )

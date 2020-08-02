@@ -13,7 +13,7 @@ SYSMGR_SRC := $(shell find . 2>&1 | grep -E '.*\.(c|h|go)$$')
 SYSMGR_GRPC_DIR := ../sysbox-ipc/sysboxMgrGrpc
 SYSMGR_GRPC_SRC := $(shell find $(SYSMGR_GRPC_DIR) 2>&1 | grep -E '.*\.(c|h|go|proto)$$')
 
-LIBDOCKER_DIR := ../lib/dockerUtils
+LIBDOCKER_DIR := ../sysbox-libs/dockerUtils
 LIBDOCKER_SRC := $(shell find $(LIBDOCKER_DIR) 2>&1 | grep -E '.*\.(go)')
 
 LDFLAGS := '-X main.version=${VERSION} -X main.commitId=${COMMIT_ID} \
