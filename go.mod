@@ -8,9 +8,9 @@ require (
 	github.com/fsnotify/fsnotify v1.4.7
 	github.com/mrunalp/fileutils v0.0.0-20171103030105-7d4729fb3618
 	github.com/nestybox/sysbox-ipc v0.0.0-00010101000000-000000000000
+	github.com/nestybox/sysbox-libs/dockerUtils v0.0.0-00010101000000-000000000000
+	github.com/nestybox/sysbox-libs/utils v0.0.0-00010101000000-000000000000
 	github.com/nestybox/sysbox-runc v0.0.0-00010101000000-000000000000
-	github.com/nestybox/sysbox/dockerUtils v0.0.0-00010101000000-000000000000
-	github.com/nestybox/sysbox/utils v0.0.0-00010101000000-000000000000
 	github.com/opencontainers/runc v0.0.0-00010101000000-000000000000
 	github.com/opencontainers/runtime-spec v1.0.2
 	github.com/pkg/profile v1.4.0
@@ -23,13 +23,13 @@ replace github.com/nestybox/sysbox-ipc => ../sysbox-ipc
 
 replace github.com/nestybox/sysbox-runc => ../sysbox-runc
 
-replace github.com/nestybox/sysbox/utils => ../lib/utils
+replace github.com/nestybox/sysbox-libs/utils => ../sysbox-libs/utils
 
-replace github.com/nestybox/sysbox/dockerUtils => ../lib/dockerUtils
+replace github.com/nestybox/sysbox-libs/dockerUtils => ../sysbox-libs/dockerUtils
 
-replace github.com/nestybox/libseccomp-golang => ../lib/seccomp-golang
+replace github.com/nestybox/sysbox-libs/libseccomp-golang => ../sysbox-libs/libseccomp-golang
 
-replace github.com/nestybox/sysbox/lib/capability => ../lib/capability
+replace github.com/nestybox/sysbox-libs/capability => ../sysbox-libs/capability
 
 replace github.com/opencontainers/runc => ./../sysbox-runc
 
