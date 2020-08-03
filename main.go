@@ -58,10 +58,6 @@ func main() {
 			Usage: "log categories to include (debug, info, warning, error, fatal)",
 		},
 		cli.BoolTFlag{
-			Name:  "inner-docker-image-sharing",
-			Usage: "enables copy-on-write sharing of inner docker images between system containers; speeds up container start time and reduces storage overhead for containers that come preloaded with inner Docker images (default = true).",
-		},
-		cli.BoolTFlag{
 			Name:  "alias-dns",
 			Usage: "aliases the DNS IP inside the system container to ensure it never has a localhost address; required for system containers on user-defined Docker bridge networks (default = true)",
 		},
