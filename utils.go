@@ -18,7 +18,6 @@ import (
 
 	"github.com/nestybox/sysbox-libs/dockerUtils"
 	utils "github.com/nestybox/sysbox-libs/utils"
-	"github.com/nestybox/sysbox-mgr/dockerVolMgr"
 	intf "github.com/nestybox/sysbox-mgr/intf"
 	"github.com/nestybox/sysbox-mgr/subidAlloc"
 	"github.com/nestybox/sysbox-mgr/volMgr"
@@ -238,15 +237,7 @@ func setupDockerVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
 		}
 	}
 
-	innerImgSharing := ctx.GlobalBoolT("inner-docker-image-sharing")
-
-	if innerImgSharing {
-		logrus.Infof("Inner docker image sharing enabled.")
-	} else {
-		logrus.Infof("Inner docker image sharing disabled.")
-	}
-
-	return dockerVolMgr.New("dockerVolMgr", hostDir, innerImgSharing)
+	return volMgr.New("dockerVolMgr", hostDir, true)
 }
 
 func setupKubeletVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
