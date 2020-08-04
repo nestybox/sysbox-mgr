@@ -16,8 +16,8 @@ import (
 	"github.com/urfave/cli"
 )
 
-// Default subid range required by sysbox (allows 4k sys containers, each with 64k uid(gids))
-var subidRangeSize uint64 = 268435456
+// Default subid range required by sysbox
+var subidRangeSize uint64 = 65536
 
 const (
 	usage = `sysbox manager
@@ -56,16 +56,6 @@ func main() {
 			Name:  "log-level",
 			Value: "info",
 			Usage: "log categories to include (debug, info, warning, error, fatal)",
-		},
-		cli.StringFlag{
-			Name:  "subid-policy, p",
-			Value: "reuse",
-			Usage: "subid allocator exhaust policy ('reuse' or 'no-reuse')",
-		},
-		cli.Uint64Flag{
-			Name:  "subid-range-size, r",
-			Value: subidRangeSize,
-			Usage: "subid allocator range (must be a multiple of 64K and <= 4G)",
 		},
 		cli.BoolTFlag{
 			Name:  "inner-docker-image-sharing",
@@ -132,18 +122,6 @@ func main() {
 		} else {
 			// Set 'info' as our default log-level.
 			logrus.SetLevel(logrus.InfoLevel)
-		}
-
-		if ctx.GlobalUint64("subid-range-size") != 0 {
-			subidRangeSize = ctx.GlobalUint64("subid-range-size")
-		}
-
-		if subidRangeSize%(1<<16) != 0 {
-			return fmt.Errorf("invalid subid-range-size %d; must be a multiple of 64K", subidRangeSize)
-		}
-
-		if subidRangeSize > (1 << 32) {
-			return fmt.Errorf("invalid subid-range-size %d; must be <= 4G", subidRangeSize)
 		}
 
 		return nil
