@@ -21,10 +21,8 @@ type SubidAlloc interface {
 
 	// Allocates an unused range of 'size' uids and gids for the container with the given 'id'.
 	// Max supported 'size' is 2^32.
-	// 'mode' indicates the allocation mode; must be "exclusive", "identity", or "". The latter
-	// means the subid allocator should use it's default allocation mode.
 	// Possible errors are nil, "exhausted", or "invalid-size".
-	Alloc(id string, size uint64, mode string) (uint32, uint32, error)
+	Alloc(id string, size uint64) (uint32, uint32, error)
 
 	// Free releases a previously allocated uid and gid range for the container with the
 	// given 'id'. Possible errors are nil and "not-found" (if the container with the
