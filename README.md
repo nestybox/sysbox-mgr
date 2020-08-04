@@ -5,8 +5,8 @@ provides miscellaneous services to other sysbox components.
 
 Currently it provides these services:
 
-* Subid allocation: allocates an exclusive range of subuid and subgids
-  for each system container; service is invoked by sysbox-runc.
+* Subid allocation: allocates a common range of subuid and subgids
+  for all system containers; service is invoked by sysbox-runc.
 
 * Shiftfs marking: creates shiftfs marks on host directories on
   which shiftfs will be mounted. Handles redundant mounts/unmounts
@@ -26,7 +26,12 @@ Currently it provides these services:
   This is needed to avoid shiftfs mounts over this directory in
   the sys container, as kubelet does not support it.
 
-In the future it is expected to provide further services to sysbox-runc
+* Docker-store Volume Management: creates a directory on the host
+  that is mounted into the system container's `/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs`.
+  This way, the overlayfs over overlayfs scenario created by running
+  containerd-in-docker is avoided.
+
+In the future it's expected to provide further services to sysbox-runc
 as well as sysbox-fs.
 
 # Build & Usage

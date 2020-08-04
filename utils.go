@@ -16,12 +16,12 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/nestybox/sysbox-libs/dockerUtils"
+	utils "github.com/nestybox/sysbox-libs/utils"
 	"github.com/nestybox/sysbox-mgr/dockerVolMgr"
 	intf "github.com/nestybox/sysbox-mgr/intf"
 	"github.com/nestybox/sysbox-mgr/subidAlloc"
 	"github.com/nestybox/sysbox-mgr/volMgr"
-	"github.com/nestybox/sysbox-libs/dockerUtils"
-	utils "github.com/nestybox/sysbox-libs/utils"
 	"github.com/opencontainers/runc/libcontainer/mount"
 	"github.com/opencontainers/runc/libcontainer/user"
 	"github.com/opencontainers/runc/libsysbox/sysbox"
@@ -170,7 +170,6 @@ func getSubidLimits(file string) ([]uint64, error) {
 }
 
 func setupSubidAlloc(ctx *cli.Context) (intf.SubidAlloc, error) {
-	var reusePol subidAlloc.ReusePolicy
 
 	// get subid min/max limits from login.defs (if any)
 	limits, err := getSubidLimits("/etc/login.defs")
@@ -191,16 +190,6 @@ func setupSubidAlloc(ctx *cli.Context) (intf.SubidAlloc, error) {
 		return nil, err
 	}
 
-	logrus.Infof("Subid allocation range: start = %v, size = %v", subUidMin, subidRangeSize)
-
-	if ctx.GlobalString("subid-policy") == "no-reuse" {
-		reusePol = subidAlloc.NoReuse
-		logrus.Infof("Subid allocation exhaust policy set to \"no-reuse\"")
-	} else {
-		reusePol = subidAlloc.Reuse
-		logrus.Infof("Subid allocation exhaust policy set to \"reuse\"")
-	}
-
 	subuidSrc, err := os.Open("/etc/subuid")
 	if err != nil {
 		return nil, err
@@ -213,7 +202,7 @@ func setupSubidAlloc(ctx *cli.Context) (intf.SubidAlloc, error) {
 	}
 	defer subgidSrc.Close()
 
-	subidAlloc, err := subidAlloc.New("sysbox", "exclusive", reusePol, subuidSrc, subgidSrc)
+	subidAlloc, err := subidAlloc.New("sysbox", subuidSrc, subgidSrc)
 	if err != nil {
 		return nil, err
 	}

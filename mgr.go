@@ -13,10 +13,10 @@ import (
 	"github.com/fsnotify/fsnotify"
 	grpc "github.com/nestybox/sysbox-ipc/sysboxMgrGrpc"
 	ipcLib "github.com/nestybox/sysbox-ipc/sysboxMgrLib"
-	intf "github.com/nestybox/sysbox-mgr/intf"
-	"github.com/nestybox/sysbox-mgr/shiftfsMgr"
 	"github.com/nestybox/sysbox-libs/dockerUtils"
 	utils "github.com/nestybox/sysbox-libs/utils"
+	intf "github.com/nestybox/sysbox-mgr/intf"
+	"github.com/nestybox/sysbox-mgr/shiftfsMgr"
 	"github.com/opencontainers/runc/libcontainer/configs"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
@@ -655,7 +655,7 @@ func (mgr *SysboxMgr) allocSubid(id string, size uint64) (uint32, uint32, error)
 	// if this is a newly started container, allocate the uid/gid range
 	// (started or stopped containers keep their uid/gid range until removed)
 	if info.uidInfo.size == 0 {
-		uid, gid, err := mgr.subidAlloc.Alloc(id, size, "")
+		uid, gid, err := mgr.subidAlloc.Alloc(id, size)
 		if err != nil {
 			return uid, gid, fmt.Errorf("failed to allocate uid(gid) for %s: %s", id, err)
 		}
