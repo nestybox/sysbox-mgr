@@ -1,6 +1,3 @@
-//
-// Copyright: (C) 2019 Nestybox Inc.  All rights reserved.
-//
 
 // The shiftfs manager performs shiftfs marks/unmarks on the sys container's rootfs
 // and other mountpoins (e.g., bind-mount sources).
