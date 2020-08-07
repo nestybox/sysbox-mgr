@@ -1,6 +1,3 @@
-//
-// Copyright: (C) 2019 Nestybox Inc.  All rights reserved.
-//
 
 // The volume manager manages a directory on the host that is bind-mounted into the sys
 // container, typically to overcome problems that arise if those directories were to be on
