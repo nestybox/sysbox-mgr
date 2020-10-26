@@ -595,12 +595,15 @@ func (mgr *SysboxMgr) prepMounts(id string, uid, gid uint32, shiftUids bool, pre
 	for _, prepInfo := range prepList {
 		src := prepInfo.Source
 
-		// if the mount is exclusive and another sys container has the same mount source, return error
+		// Exclusive mounts are mounts that should be mounted in one sys container
+		// at a given time; it's OK if it's mounted in multiple containers, as
+		// long as only one container uses it. If the mount is exclusive and
+		// another sys container has the same mount source, generate a warning.
+
 		mgr.mntPrepLock.Lock()
 		cid, found := mgr.mntPrepTable[src]
 		if found && prepInfo.Exclusive {
-			mgr.mntPrepLock.Unlock()
-			return fmt.Errorf("mount prep failed; source at %s is already in use by container %s", src, cid)
+			logrus.Warnf("mount source at %s should be mounted in one container only, but is already mounted in container %s", src, cid)
 		}
 		mgr.mntPrepTable[src] = id
 		mgr.mntPrepLock.Unlock()
