@@ -26,6 +26,7 @@ import (
 	grpc "github.com/nestybox/sysbox-ipc/sysboxMgrGrpc"
 	ipcLib "github.com/nestybox/sysbox-ipc/sysboxMgrLib"
 	"github.com/nestybox/sysbox-libs/dockerUtils"
+	libutils "github.com/nestybox/sysbox-libs/utils"
 	utils "github.com/nestybox/sysbox-libs/utils"
 	intf "github.com/nestybox/sysbox-mgr/intf"
 	"github.com/nestybox/sysbox-mgr/shiftfsMgr"
@@ -84,6 +85,8 @@ type SysboxMgr struct {
 	kubeletVolMgr     intf.VolMgr
 	containerdVolMgr  intf.VolMgr
 	shiftfsMgr        intf.ShiftfsMgr
+	hostDistro        string
+	hostKernelHdrPath string
 	linuxHeaderMounts []specs.Mount
 	libModMounts      []specs.Mount
 	contTable         map[string]containerInfo // cont id -> cont info
@@ -135,7 +138,17 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		return nil, fmt.Errorf("failed to setup shiftfs mgr: %v", err)
 	}
 
-	linuxHeaderMounts, err := getLinuxHeaderMounts()
+	hostDistro, err := libutils.GetDistro()
+	if err != nil {
+		return nil, fmt.Errorf("failed to identify system's linux distribution: %v", err)
+	}
+
+	hostKernelHdrPath, err := libutils.GetLinuxHeaderPath(hostDistro)
+	if err != nil {
+		return nil, fmt.Errorf("failed to identify system's linux-header path: %v", err)
+	}
+
+	linuxHeaderMounts, err := getLinuxHeaderMounts(hostKernelHdrPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to compute linux header mounts: %v", err)
 	}
@@ -162,6 +175,8 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		kubeletVolMgr:     kubeletVolMgr,
 		containerdVolMgr:  containerdVolMgr,
 		shiftfsMgr:        shiftfsMgr,
+		hostDistro:        hostDistro,
+		hostKernelHdrPath: hostKernelHdrPath,
 		linuxHeaderMounts: linuxHeaderMounts,
 		libModMounts:      libModMounts,
 		contTable:         make(map[string]containerInfo),
@@ -177,6 +192,7 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		ReqMounts:      mgr.reqMounts,
 		PrepMounts:     mgr.prepMounts,
 		ReqShiftfsMark: mgr.reqShiftfsMark,
+		ReqFsState:     mgr.reqFsState,
 		Pause:          mgr.pause,
 	}
 
@@ -507,11 +523,10 @@ func (mgr *SysboxMgr) reqMounts(id, rootfs string, uid, gid uint32, shiftUids bo
 		containerMnts = append(containerMnts, m...)
 	}
 
-	// Add the linux kernel header mounts to the sys container. This is
-	// needed to build or run apps that interact with the Linux kernel
-	// directly within a sys container. Note that there is no need to
-	// track mntInfo for these since we are not backing these with
-	// sysbox-mgr data stores.
+	// Add the linux kernel header mounts to the sys container. This is needed to
+	// build or run apps that interact with the Linux kernel directly within a
+	// sys container. Note that there is no need to track mntInfo for these since
+	// we are not backing these with sysbox-mgr data stores.
 	containerMnts = append(containerMnts, mgr.linuxHeaderMounts...)
 
 	// Add the linux /lib/modules/<kernel> mounts to the sys
@@ -717,6 +732,73 @@ func (mgr *SysboxMgr) reqShiftfsMark(id string, rootfs string, mounts []configs.
 	}
 
 	return nil
+}
+
+func (mgr *SysboxMgr) reqFsState(id, rootfs string) ([]configs.FsEntry, error) {
+
+	// get container info
+	mgr.ctLock.Lock()
+	_, found := mgr.contTable[id]
+	mgr.ctLock.Unlock()
+
+	if !found {
+		return nil, fmt.Errorf("container %s is not registered", id)
+	}
+
+	var fsEntries []configs.FsEntry
+
+	// In certain scenarios a soft-link will be required to properly resolve the
+	// dependencies present in "/usr/src" and "/lib/modules/kernel" paths.
+	entry, err := mgr.getKernelHeaderSoftlink(rootfs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to obtain kernel-headers softlink state for container %s: %s", id, err)
+	}
+	if entry == nil {
+		return nil, nil
+	}
+
+	fsEntries = append(fsEntries, *entry)
+
+	return fsEntries, nil
+}
+
+func (mgr *SysboxMgr) getKernelHeaderSoftlink(rootfs string) (*configs.FsEntry, error) {
+
+	// Obtain linux distro within the passed rootfs path. Notice that we are
+	// not returning any received error to ensure we complete container's
+	// registration in all scenarios (i.e. rootfs may not include a full linux
+	// env -- it may miss os-release file).
+	cntrDistro, err := libutils.GetDistroPath(rootfs)
+	if err != nil {
+		return nil, nil
+	}
+
+	// No need to proceed if host and container are running the same distro.
+	if cntrDistro == mgr.hostDistro {
+		return nil, nil
+	}
+
+	// Obtain container's kernel-header path.
+	cntrKernelPath, err := libutils.GetLinuxHeaderPath(cntrDistro)
+	if err != nil {
+		return nil, fmt.Errorf("failed to identify kernel-header path of container's rootfs %s: %v",
+			rootfs, err)
+	}
+
+	// Return if there's no kernelPath mismatch between host and container.
+	if cntrKernelPath == mgr.hostKernelHdrPath {
+		return nil, nil
+	}
+
+	// Create kernel-header softlink.
+	fsEntry := configs.NewFsEntry(
+		cntrKernelPath,
+		mgr.hostKernelHdrPath,
+		0644,
+		configs.SoftlinkFsKind,
+	)
+
+	return fsEntry, nil
 }
 
 func (mgr *SysboxMgr) pause(id string) error {

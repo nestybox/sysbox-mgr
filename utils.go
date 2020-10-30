@@ -29,13 +29,13 @@ import (
 	"syscall"
 
 	"github.com/nestybox/sysbox-libs/dockerUtils"
+	libutils "github.com/nestybox/sysbox-libs/utils"
 	utils "github.com/nestybox/sysbox-libs/utils"
 	intf "github.com/nestybox/sysbox-mgr/intf"
 	"github.com/nestybox/sysbox-mgr/subidAlloc"
 	"github.com/nestybox/sysbox-mgr/volMgr"
 	"github.com/opencontainers/runc/libcontainer/mount"
 	"github.com/opencontainers/runc/libcontainer/user"
-	"github.com/opencontainers/runc/libsysbox/sysbox"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
@@ -402,34 +402,31 @@ func sanitizeRootfs(id, rootfs string) string {
 	return rootfs
 }
 
-// getLinuxHeaderMounts returns a list of read-only mounts of the host's linux kernel headers.
-func getLinuxHeaderMounts() ([]specs.Mount, error) {
+// getLinuxHeaderMounts returns a list of read-only mounts of the host's linux
+// kernel headers.
+func getLinuxHeaderMounts(kernelHdrPath string) ([]specs.Mount, error) {
 
-	kernelRel, err := sysbox.GetKernelRelease()
-	if err != nil {
-		return nil, err
-	}
+	var path = kernelHdrPath
 
-	kernelHdr := "linux-headers-" + kernelRel
-
-	path := filepath.Join("/usr/src/", kernelHdr)
-	if _, err := os.Stat(path); err != nil {
-		return nil, err
-	}
-
-	mounts := []specs.Mount{}
-
-	// follow symlinks as some distros (e.g., Ubuntu) heavily symlink the linux
-	// header directory
-	mounts, err = createMountSpec(
+	// Create a mount-spec making use of the kernel-hdr-path in the host. This way,
+	// sys containers will have kernel-headers exposed in the same path utilized by
+	// the host. In addition to this, a softlink will be added to container's rootfs,
+	// if its expected kernel-header-path differs from the one of the host -- refer
+	// to reqFsState() for details.
+	//
+	// Finally, notice that here we enable 'follow' flag as some distros (e.g., Ubuntu)
+	// heavily symlink the linux-header directory.
+	mounts, err := createMountSpec(
 		path,
 		path,
 		"bind",
-		[]string{"ro", "rbind", "rprivate"}, true, []string{"/usr/src"},
+		[]string{"ro", "rbind", "rprivate"},
+		true,
+		[]string{"/usr/src"},
 	)
-
 	if err != nil {
-		return nil, fmt.Errorf("failed to create mount spec for linux headers at %s: %v", path, err)
+		return nil,
+			fmt.Errorf("failed to create mount spec for linux headers at %s: %v", path, err)
 	}
 
 	return mounts, nil
@@ -438,7 +435,7 @@ func getLinuxHeaderMounts() ([]specs.Mount, error) {
 // getLibModMount returns a list of read-only mounts for the host's kernel modules dir (/lib/modules/<kernel-release>).
 func getLibModMounts() ([]specs.Mount, error) {
 
-	kernelRel, err := sysbox.GetKernelRelease()
+	kernelRel, err := libutils.GetKernelRelease()
 	if err != nil {
 		return nil, err
 	}
@@ -473,7 +470,13 @@ func getLibModMounts() ([]specs.Mount, error) {
 // source path and returns additional mount specs to ensure the symlinks are valid at the
 // destination. If symlinkFilt is not empty, only symlinks that resolve to paths that
 // are prefixed by the symlinkFilt strings are allowed.
-func createMountSpec(source, dest, mountType string, mountOpt []string, followSymlinks bool, symlinkFilt []string) ([]specs.Mount, error) {
+func createMountSpec(
+	source string,
+	dest string,
+	mountType string,
+	mountOpt []string,
+	followSymlinks bool,
+	symlinkFilt []string) ([]specs.Mount, error) {
 
 	mounts := []specs.Mount{}
 	m := specs.Mount{
