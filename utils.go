@@ -406,7 +406,6 @@ func sanitizeRootfs(id, rootfs string) string {
 // kernel headers.
 func getLinuxHeaderMounts(
 	rootfs string,
-	sysDistro string,
 	kernelHdrPath string) ([]specs.Mount, error) {
 
 	var src = kernelHdrPath

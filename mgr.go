@@ -85,7 +85,7 @@ type SysboxMgr struct {
 	kubeletVolMgr    intf.VolMgr
 	containerdVolMgr intf.VolMgr
 	shiftfsMgr       intf.ShiftfsMgr
-	sysDistro        string
+	hostDistro       string
 	kernelHdrPath    string
 	libModMounts     []specs.Mount
 	contTable        map[string]containerInfo // cont id -> cont info
@@ -137,12 +137,12 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		return nil, fmt.Errorf("failed to setup shiftfs mgr: %v", err)
 	}
 
-	sysDistro, err := libutils.GetDistro()
+	hostDistro, err := libutils.GetDistro()
 	if err != nil {
 		return nil, fmt.Errorf("failed to identify system's linux distribution: %v", err)
 	}
 
-	kernelHdrPath, err := libutils.GetLinuxHeaderPath(sysDistro)
+	kernelHdrPath, err := libutils.GetLinuxHeaderPath(hostDistro)
 	if err != nil {
 		return nil, fmt.Errorf("failed to identify system's linux-header path: %v", err)
 	}
@@ -169,7 +169,7 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		kubeletVolMgr:    kubeletVolMgr,
 		containerdVolMgr: containerdVolMgr,
 		shiftfsMgr:       shiftfsMgr,
-		sysDistro:        sysDistro,
+		hostDistro:       hostDistro,
 		kernelHdrPath:    kernelHdrPath,
 		libModMounts:     libModMounts,
 		contTable:        make(map[string]containerInfo),
@@ -519,7 +519,7 @@ func (mgr *SysboxMgr) reqMounts(id, rootfs string, uid, gid uint32, shiftUids bo
 	// build or run apps that interact with the Linux kernel directly within a
 	// sys container. Note that there is no need to track mntInfo for these since
 	// we are not backing these with sysbox-mgr data stores.
-	linuxHdrMount, err := getLinuxHeaderMounts(rootfs, mgr.sysDistro, mgr.kernelHdrPath)
+	linuxHdrMount, err := getLinuxHeaderMounts(rootfs, mgr.kernelHdrPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup linuxHeaderMounts for container %s: %s", id, err)
 	}
