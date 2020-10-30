@@ -26,6 +26,7 @@ import (
 	grpc "github.com/nestybox/sysbox-ipc/sysboxMgrGrpc"
 	ipcLib "github.com/nestybox/sysbox-ipc/sysboxMgrLib"
 	"github.com/nestybox/sysbox-libs/dockerUtils"
+	libutils "github.com/nestybox/sysbox-libs/utils"
 	utils "github.com/nestybox/sysbox-libs/utils"
 	intf "github.com/nestybox/sysbox-mgr/intf"
 	"github.com/nestybox/sysbox-mgr/shiftfsMgr"
@@ -77,23 +78,24 @@ type containerInfo struct {
 }
 
 type SysboxMgr struct {
-	mgrCfg            *ipcLib.MgrConfig
-	grpcServer        *grpc.ServerStub
-	subidAlloc        intf.SubidAlloc
-	dockerVolMgr      intf.VolMgr
-	kubeletVolMgr     intf.VolMgr
-	containerdVolMgr  intf.VolMgr
-	shiftfsMgr        intf.ShiftfsMgr
-	linuxHeaderMounts []specs.Mount
-	libModMounts      []specs.Mount
-	contTable         map[string]containerInfo // cont id -> cont info
-	ctLock            sync.Mutex
-	rootfsTable       map[string]string // cont rootfs -> cont id; used by rootfs monitor
-	rtLock            sync.Mutex
-	rootfsMonStop     chan int
-	rootfsWatcher     *fsnotify.Watcher
-	mntPrepTable      map[string]string // mount source -> cont id
-	mntPrepLock       sync.Mutex
+	mgrCfg           *ipcLib.MgrConfig
+	grpcServer       *grpc.ServerStub
+	subidAlloc       intf.SubidAlloc
+	dockerVolMgr     intf.VolMgr
+	kubeletVolMgr    intf.VolMgr
+	containerdVolMgr intf.VolMgr
+	shiftfsMgr       intf.ShiftfsMgr
+	sysDistro        string
+	kernelHdrPath    string
+	libModMounts     []specs.Mount
+	contTable        map[string]containerInfo // cont id -> cont info
+	ctLock           sync.Mutex
+	rootfsTable      map[string]string // cont rootfs -> cont id; used by rootfs monitor
+	rtLock           sync.Mutex
+	rootfsMonStop    chan int
+	rootfsWatcher    *fsnotify.Watcher
+	mntPrepTable     map[string]string // mount source -> cont id
+	mntPrepLock      sync.Mutex
 }
 
 // newSysboxMgr creates an instance of the sysbox manager
@@ -135,9 +137,14 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		return nil, fmt.Errorf("failed to setup shiftfs mgr: %v", err)
 	}
 
-	linuxHeaderMounts, err := getLinuxHeaderMounts()
+	sysDistro, err := libutils.GetDistro()
 	if err != nil {
-		return nil, fmt.Errorf("failed to compute linux header mounts: %v", err)
+		return nil, fmt.Errorf("failed to identify system's linux distribution: %v", err)
+	}
+
+	kernelHdrPath, err := libutils.GetLinuxHeaderPath(sysDistro)
+	if err != nil {
+		return nil, fmt.Errorf("failed to identify system's linux-header path: %v", err)
 	}
 
 	libModMounts, err := getLibModMounts()
@@ -156,18 +163,19 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 	}
 
 	mgr := &SysboxMgr{
-		mgrCfg:            mgrCfg,
-		subidAlloc:        subidAlloc,
-		dockerVolMgr:      dockerVolMgr,
-		kubeletVolMgr:     kubeletVolMgr,
-		containerdVolMgr:  containerdVolMgr,
-		shiftfsMgr:        shiftfsMgr,
-		linuxHeaderMounts: linuxHeaderMounts,
-		libModMounts:      libModMounts,
-		contTable:         make(map[string]containerInfo),
-		rootfsTable:       make(map[string]string),
-		rootfsMonStop:     make(chan int),
-		mntPrepTable:      make(map[string]string),
+		mgrCfg:           mgrCfg,
+		subidAlloc:       subidAlloc,
+		dockerVolMgr:     dockerVolMgr,
+		kubeletVolMgr:    kubeletVolMgr,
+		containerdVolMgr: containerdVolMgr,
+		shiftfsMgr:       shiftfsMgr,
+		sysDistro:        sysDistro,
+		kernelHdrPath:    kernelHdrPath,
+		libModMounts:     libModMounts,
+		contTable:        make(map[string]containerInfo),
+		rootfsTable:      make(map[string]string),
+		rootfsMonStop:    make(chan int),
+		mntPrepTable:     make(map[string]string),
 	}
 
 	cb := &grpc.ServerCallbacks{
@@ -507,12 +515,15 @@ func (mgr *SysboxMgr) reqMounts(id, rootfs string, uid, gid uint32, shiftUids bo
 		containerMnts = append(containerMnts, m...)
 	}
 
-	// Add the linux kernel header mounts to the sys container. This is
-	// needed to build or run apps that interact with the Linux kernel
-	// directly within a sys container. Note that there is no need to
-	// track mntInfo for these since we are not backing these with
-	// sysbox-mgr data stores.
-	containerMnts = append(containerMnts, mgr.linuxHeaderMounts...)
+	// Add the linux kernel header mounts to the sys container. This is needed to
+	// build or run apps that interact with the Linux kernel directly within a
+	// sys container. Note that there is no need to track mntInfo for these since
+	// we are not backing these with sysbox-mgr data stores.
+	linuxHdrMount, err := getLinuxHeaderMounts(rootfs, mgr.sysDistro, mgr.kernelHdrPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to setup linuxHeaderMounts for container %s: %s", id, err)
+	}
+	containerMnts = append(containerMnts, linuxHdrMount...)
 
 	// Add the linux /lib/modules/<kernel> mounts to the sys
 	// container. This allows system container processes to verify the

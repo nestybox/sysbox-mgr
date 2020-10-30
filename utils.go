@@ -29,13 +29,13 @@ import (
 	"syscall"
 
 	"github.com/nestybox/sysbox-libs/dockerUtils"
+	libutils "github.com/nestybox/sysbox-libs/utils"
 	utils "github.com/nestybox/sysbox-libs/utils"
 	intf "github.com/nestybox/sysbox-mgr/intf"
 	"github.com/nestybox/sysbox-mgr/subidAlloc"
 	"github.com/nestybox/sysbox-mgr/volMgr"
 	"github.com/opencontainers/runc/libcontainer/mount"
 	"github.com/opencontainers/runc/libcontainer/user"
-	"github.com/opencontainers/runc/libsysbox/sysbox"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
@@ -402,34 +402,42 @@ func sanitizeRootfs(id, rootfs string) string {
 	return rootfs
 }
 
-// getLinuxHeaderMounts returns a list of read-only mounts of the host's linux kernel headers.
-func getLinuxHeaderMounts() ([]specs.Mount, error) {
+// getLinuxHeaderMounts returns a list of read-only mounts of the host's linux
+// kernel headers.
+func getLinuxHeaderMounts(
+	rootfs string,
+	sysDistro string,
+	kernelHdrPath string) ([]specs.Mount, error) {
 
-	kernelRel, err := sysbox.GetKernelRelease()
+	var src = kernelHdrPath
+
+	// Obtain linux distro within the passed rootfs path. Notice that we are
+	// not returning any received error to ensure we complete container's
+	// registration in all scenarios (i.e. rootfs may not include a full linux
+	// env -- missing os-release file).
+	cntrDistro, err := libutils.GetDistroPath(rootfs)
 	if err != nil {
-		return nil, err
+		return nil, nil
 	}
 
-	kernelHdr := "linux-headers-" + kernelRel
-
-	path := filepath.Join("/usr/src/", kernelHdr)
-	if _, err := os.Stat(path); err != nil {
-		return nil, err
+	dst, err := libutils.GetLinuxHeaderPath(cntrDistro)
+	if err != nil {
+		return nil, fmt.Errorf("failed to identify kernel-header path of container's rootfs %s: %v",
+			rootfs, err)
 	}
 
-	mounts := []specs.Mount{}
-
-	// follow symlinks as some distros (e.g., Ubuntu) heavily symlink the linux
-	// header directory
-	mounts, err = createMountSpec(
-		path,
-		path,
+	// Follow symlinks as some distros (e.g., Ubuntu) heavily symlink the linux
+	// header directory.
+	mounts, err := createMountSpec(
+		src,
+		dst,
 		"bind",
-		[]string{"ro", "rbind", "rprivate"}, true, []string{"/usr/src"},
+		[]string{"ro", "rbind", "rprivate"},
+		true,
+		[]string{"/usr/src"},
 	)
-
 	if err != nil {
-		return nil, fmt.Errorf("failed to create mount spec for linux headers at %s: %v", path, err)
+		return nil, fmt.Errorf("failed to create mount spec for linux headers at %s: %v", dst, err)
 	}
 
 	return mounts, nil
@@ -438,7 +446,7 @@ func getLinuxHeaderMounts() ([]specs.Mount, error) {
 // getLibModMount returns a list of read-only mounts for the host's kernel modules dir (/lib/modules/<kernel-release>).
 func getLibModMounts() ([]specs.Mount, error) {
 
-	kernelRel, err := sysbox.GetKernelRelease()
+	kernelRel, err := libutils.GetKernelRelease()
 	if err != nil {
 		return nil, err
 	}
@@ -473,7 +481,13 @@ func getLibModMounts() ([]specs.Mount, error) {
 // source path and returns additional mount specs to ensure the symlinks are valid at the
 // destination. If symlinkFilt is not empty, only symlinks that resolve to paths that
 // are prefixed by the symlinkFilt strings are allowed.
-func createMountSpec(source, dest, mountType string, mountOpt []string, followSymlinks bool, symlinkFilt []string) ([]specs.Mount, error) {
+func createMountSpec(
+	source string,
+	dest string,
+	mountType string,
+	mountOpt []string,
+	followSymlinks bool,
+	symlinkFilt []string) ([]specs.Mount, error) {
 
 	mounts := []specs.Mount{}
 	m := specs.Mount{
@@ -513,9 +527,16 @@ func createMountSpec(source, dest, mountType string, mountOpt []string, followSy
 
 			// if the lcp is underneath the source, ignore it
 			if !strings.HasPrefix(lcp, source+"/") {
+
+				if source == dest {
+					dest = lcp
+				} else {
+					dest = longestCommonPathMerge(lcp, dest)
+				}
+
 				m := specs.Mount{
 					Source:      lcp,
-					Destination: lcp,
+					Destination: dest,
 					Type:        mountType,
 					Options:     mountOpt,
 				}
@@ -554,6 +575,39 @@ func longestCommonPath(paths []string) string {
 	}
 
 	return shortest
+}
+
+// Merges 'src' path into 'dst' one attending to their largest-common-paths.
+//
+// Example:
+//
+// src = /usr/src/linux-headers-5.4.0-48
+// dst = /usr/src/kernels/5.4.0-48-generic
+// res = /usr/src/kernels/linux-headers-5.4.0-48
+//
+func longestCommonPathMerge(src string, dst string) string {
+
+	if len(src) == 0 {
+		return dst
+	}
+	if len(dst) == 0 {
+		return src
+	}
+
+	lcp := longestCommonPath([]string{src, dst})
+
+	// Identify differences between 'src' and 'dst'.
+	src_suffix := strings.TrimPrefix(src, lcp)
+	dst_suffix := strings.TrimPrefix(dst, lcp)
+
+	// Identify first path-segment (dir) in which 'src' and 'dst' diverge.
+	elems_src_suffix := strings.Split(src_suffix, "/")
+	elems_dst_suffix := strings.Split(dst_suffix, "/")
+
+	// Mingle paths.
+	merged := filepath.Join(lcp, elems_dst_suffix[0], elems_src_suffix[0])
+
+	return merged
 }
 
 // returns a list of all symbolic links under the given directory
