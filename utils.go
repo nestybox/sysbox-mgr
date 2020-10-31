@@ -589,7 +589,7 @@ func longestCommonPath(paths []string) string {
 //
 // src = /usr/src/a/b/c/kernel-1
 // dst = /usr/src/d/e/kernel-2
-// res = /usr/src/a/b/c/kernel-1
+// res = /usr/src/d/e/kernel-1
 //
 func longestCommonPathMerge(src string, dst string) string {
 
