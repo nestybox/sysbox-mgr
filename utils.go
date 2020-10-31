@@ -576,13 +576,20 @@ func longestCommonPath(paths []string) string {
 	return shortest
 }
 
-// Merges 'src' path into 'dst' one attending to their largest-common-paths.
+// Merges 'src' path into 'dst' one. Merge point is determined by the
+// longest-common-path of 'src' and 'dst'.
 //
-// Example:
+// Example 1:
 //
 // src = /usr/src/linux-headers-5.4.0-48
 // dst = /usr/src/kernels/5.4.0-48-generic
 // res = /usr/src/kernels/linux-headers-5.4.0-48
+//
+// Example 2:
+//
+// src = /usr/src/a/b/c/kernel-1
+// dst = /usr/src/d/e/kernel-2
+// res = /usr/src/a/b/c/kernel-1
 //
 func longestCommonPathMerge(src string, dst string) string {
 
@@ -596,17 +603,16 @@ func longestCommonPathMerge(src string, dst string) string {
 	lcp := longestCommonPath([]string{src, dst})
 
 	// Identify differences between 'src' and 'dst'.
-	src_suffix := strings.TrimPrefix(src, lcp)
-	dst_suffix := strings.TrimPrefix(dst, lcp)
+	src_postlcp := strings.TrimPrefix(src, lcp)
+	dst_postlcp := strings.TrimPrefix(dst, lcp)
 
-	// Identify first path-segment (dir) in which 'src' and 'dst' diverge.
-	elems_src_suffix := strings.Split(src_suffix, "/")
-	elems_dst_suffix := strings.Split(dst_suffix, "/")
+	// Exclude last element of 'dst' path.
+	dst_postlcp_dir := filepath.Dir(dst_postlcp)
 
-	// Mingle paths.
-	merged := filepath.Join(lcp, elems_dst_suffix[0], elems_src_suffix[0])
+	// Merge operation.
+	res := filepath.Join(lcp, dst_postlcp_dir, src_postlcp)
 
-	return merged
+	return res
 }
 
 // returns a list of all symbolic links under the given directory
