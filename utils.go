@@ -404,39 +404,23 @@ func sanitizeRootfs(id, rootfs string) string {
 
 // getLinuxHeaderMounts returns a list of read-only mounts of the host's linux
 // kernel headers.
-func getLinuxHeaderMounts(
-	rootfs string,
-	kernelHdrPath string) ([]specs.Mount, error) {
+func getLinuxHeaderMounts(kernelHdrPath string) ([]specs.Mount, error) {
 
 	var src = kernelHdrPath
-
-	// Obtain linux distro within the passed rootfs path. Notice that we are
-	// not returning any received error to ensure we complete container's
-	// registration in all scenarios (i.e. rootfs may not include a full linux
-	// env -- missing os-release file).
-	cntrDistro, err := libutils.GetDistroPath(rootfs)
-	if err != nil {
-		return nil, nil
-	}
-
-	dst, err := libutils.GetLinuxHeaderPath(cntrDistro)
-	if err != nil {
-		return nil, fmt.Errorf("failed to identify kernel-header path of container's rootfs %s: %v",
-			rootfs, err)
-	}
 
 	// Follow symlinks as some distros (e.g., Ubuntu) heavily symlink the linux
 	// header directory.
 	mounts, err := createMountSpec(
 		src,
-		dst,
+		src,
 		"bind",
 		[]string{"ro", "rbind", "rprivate"},
 		true,
 		[]string{"/usr/src"},
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create mount spec for linux headers at %s: %v", dst, err)
+		return nil,
+			fmt.Errorf("failed to create mount spec for linux headers at %s: %v", src, err)
 	}
 
 	return mounts, nil
@@ -526,16 +510,9 @@ func createMountSpec(
 
 			// if the lcp is underneath the source, ignore it
 			if !strings.HasPrefix(lcp, source+"/") {
-
-				if source == dest {
-					dest = lcp
-				} else {
-					dest = longestCommonPathMerge(lcp, dest)
-				}
-
 				m := specs.Mount{
 					Source:      lcp,
-					Destination: dest,
+					Destination: lcp,
 					Type:        mountType,
 					Options:     mountOpt,
 				}
@@ -574,45 +551,6 @@ func longestCommonPath(paths []string) string {
 	}
 
 	return shortest
-}
-
-// Merges 'src' path into 'dst' one. Merge point is determined by the
-// longest-common-path of 'src' and 'dst'.
-//
-// Example 1:
-//
-// src = /usr/src/linux-headers-5.4.0-48
-// dst = /usr/src/kernels/5.4.0-48-generic
-// res = /usr/src/kernels/linux-headers-5.4.0-48
-//
-// Example 2:
-//
-// src = /usr/src/a/b/c/kernel-1
-// dst = /usr/src/d/e/kernel-2
-// res = /usr/src/d/e/kernel-1
-//
-func longestCommonPathMerge(src string, dst string) string {
-
-	if len(src) == 0 {
-		return dst
-	}
-	if len(dst) == 0 {
-		return src
-	}
-
-	lcp := longestCommonPath([]string{src, dst})
-
-	// Identify differences between 'src' and 'dst'.
-	src_postlcp := strings.TrimPrefix(src, lcp)
-	dst_postlcp := strings.TrimPrefix(dst, lcp)
-
-	// Exclude last element of 'dst' path.
-	dst_postlcp_dir := filepath.Dir(dst_postlcp)
-
-	// Merge operation.
-	res := filepath.Join(lcp, dst_postlcp_dir, src_postlcp)
-
-	return res
 }
 
 // returns a list of all symbolic links under the given directory
