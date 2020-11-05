@@ -527,11 +527,7 @@ func (mgr *SysboxMgr) reqMounts(id, rootfs string, uid, gid uint32, shiftUids bo
 	// build or run apps that interact with the Linux kernel directly within a
 	// sys container. Note that there is no need to track mntInfo for these since
 	// we are not backing these with sysbox-mgr data stores.
-	linuxHdrMount, err := getLinuxHeaderMounts(mgr.hostKernelHdrPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to setup linuxHeaderMounts for container %s: %s", id, err)
-	}
-	containerMnts = append(containerMnts, linuxHdrMount...)
+	containerMnts = append(containerMnts, mgr.linuxHeaderMounts...)
 
 	// Add the linux /lib/modules/<kernel> mounts to the sys
 	// container. This allows system container processes to verify the
