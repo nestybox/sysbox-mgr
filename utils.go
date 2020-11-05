@@ -406,13 +406,19 @@ func sanitizeRootfs(id, rootfs string) string {
 // kernel headers.
 func getLinuxHeaderMounts(kernelHdrPath string) ([]specs.Mount, error) {
 
-	var src = kernelHdrPath
+	var path = kernelHdrPath
 
-	// Follow symlinks as some distros (e.g., Ubuntu) heavily symlink the linux
-	// header directory.
+	// Create a mount-spec making use of the kernel-hdr-path in the host. This way,
+	// sys containers will have kernel-headers exposed in the same path utilized by
+	// the host. In addition to this, a softlink will be added to container's rootfs,
+	// if its expected kernel-header-path differs from the one of the host -- refer
+	// to reqFsState() for details.
+	//
+	// Finally, notice that here we enable 'follow' flag as some distros (e.g., Ubuntu)
+	// heavily symlink the linux-header directory.
 	mounts, err := createMountSpec(
-		src,
-		src,
+		path,
+		path,
 		"bind",
 		[]string{"ro", "rbind", "rprivate"},
 		true,
@@ -420,7 +426,7 @@ func getLinuxHeaderMounts(kernelHdrPath string) ([]specs.Mount, error) {
 	)
 	if err != nil {
 		return nil,
-			fmt.Errorf("failed to create mount spec for linux headers at %s: %v", src, err)
+			fmt.Errorf("failed to create mount spec for linux headers at %s: %v", path, err)
 	}
 
 	return mounts, nil
