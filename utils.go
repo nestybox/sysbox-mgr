@@ -514,6 +514,11 @@ func createMountSpec(
 			lcp := longestCommonPath(filtLinks)
 			lcp = filepath.Clean(lcp)
 
+			// Skip if we are matching the original (above) mount-spec.
+			if lcp == source && lcp == dest {
+				continue
+			}
+
 			// if the lcp is underneath the source, ignore it
 			if !strings.HasPrefix(lcp, source+"/") {
 				m := specs.Mount{
