@@ -574,6 +574,7 @@ func (mgr *SysboxMgr) autoRemoveCheck(id string) {
 		logrus.Debugf("autoRemoveCheck: Docker connection failed for %s: %s\n", id, err)
 		return
 	}
+	defer docker.Disconnect()
 
 	ci, err := docker.ContainerGetInfo(id)
 	if err != nil {
