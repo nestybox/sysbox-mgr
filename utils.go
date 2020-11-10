@@ -393,7 +393,12 @@ func sanitizeRootfs(id, rootfs string) string {
 	// to <container-id>.
 
 	docker, err := dockerUtils.DockerConnect()
-	if err == nil && docker.ContainerIsDocker(id) {
+	if err != nil {
+		return rootfs
+	}
+	defer docker.Disconnect()
+
+	if docker.ContainerIsDocker(id) {
 		if strings.Contains(rootfs, "overlay2") && filepath.Base(rootfs) == "merged" {
 			return filepath.Dir(rootfs)
 		}
