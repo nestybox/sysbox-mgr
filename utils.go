@@ -320,10 +320,10 @@ func setupWorkDirs() error {
 	}
 
 	if err := os.MkdirAll(sysboxRunDir, 0700); err != nil {
-		return err
+		return fmt.Errorf("failed to create %s: %s", sysboxRunDir, err)
 	}
 	if err := os.MkdirAll(sysboxLibDir, 0700); err != nil {
-		return err
+		return fmt.Errorf("failed to create %s: %s", sysboxLibDir, err)
 	}
 	return nil
 }
