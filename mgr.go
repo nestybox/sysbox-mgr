@@ -37,9 +37,11 @@ import (
 )
 
 const (
-	sysboxRunDir = "/run/sysbox"
-	sysboxLibDir = "/var/lib/sysbox"
+	sysboxRunDir        = "/run/sysbox"
+	sysboxLibDirDefault = "/var/lib/sysbox"
 )
+
+var sysboxLibDir string
 
 type containerState int
 
@@ -108,9 +110,15 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		return nil, fmt.Errorf("preflight check failed: %s", err)
 	}
 
+	sysboxLibDir = ctx.GlobalString("data-root")
+	if sysboxLibDir == "" {
+		sysboxLibDir = sysboxLibDirDefault
+	}
+	logrus.Infof("Sysbox data root: %s", sysboxLibDir)
+
 	err = setupWorkDirs()
 	if err != nil {
-		return nil, fmt.Errorf("failed to setup the work dir: %v", err)
+		return nil, fmt.Errorf("failed to setup the sysbox work dirs: %v", err)
 	}
 
 	subidAlloc, err := setupSubidAlloc(ctx)

@@ -32,10 +32,10 @@ import (
 var subidRangeSize uint64 = 65536
 
 const (
-	usage = `sysbox manager
+	usage = `Sysbox manager daemon
 
-sysbox-mgr is the Sysbox Manager daemon. It's main job is to provide services to other
-sysbox components (e.g., sysbox-runc).`
+The Sysbox manager daemon's main job is to provide services to other
+Sysbox components (e.g., sysbox-runc).`
 )
 
 // Globals to be populated at build time during Makefile processing.
@@ -82,6 +82,11 @@ func main() {
 			Name:   "memory-profiling",
 			Usage:  "enable memory-profiling data collection",
 			Hidden: true,
+		},
+		cli.StringFlag{
+			Name:  "data-root",
+			Value: "/var/lib/sysbox",
+			Usage: "root directory for sysbox data store",
 		},
 	}
 
