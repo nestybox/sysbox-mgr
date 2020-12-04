@@ -245,7 +245,7 @@ func (m *vmgr) SyncOutAndDestroyAll() {
 }
 
 // rsyncVol performs an rsync from src to dest; if shiftUids is true, the rsync
-// modifies the ownership of files copied to dest to match the givne uid(gid).
+// modifies the ownership of files copied to dest to match the given uid(gid).
 func (m *vmgr) rsyncVol(src, dest string, uid, gid uint32, shiftUids bool) error {
 
 	var cmd *exec.Cmd

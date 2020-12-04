@@ -22,10 +22,12 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 
 	"github.com/nestybox/sysbox-libs/dockerUtils"
@@ -39,12 +41,53 @@ import (
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
+
 	"golang.org/x/sys/unix"
 )
 
 const SHIFTFS_MAGIC int64 = 0x6a656a62
 
 var progDeps = []string{"rsync", "modprobe", "iptables"}
+
+type exclusiveMntTable struct {
+	mounts map[string][]string // mount source -> list of containers using that mount source
+	lock   sync.Mutex
+}
+
+func newExclusiveMntTable() *exclusiveMntTable {
+	return &exclusiveMntTable{
+		mounts: make(map[string][]string),
+	}
+}
+
+func (t *exclusiveMntTable) add(mntSrc, containerId string) {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+
+	cids, found := t.mounts[mntSrc]
+	if found {
+		logrus.Warnf("mount source at %s should be mounted in one container only, but is already mounted in containers %v", mntSrc, cids)
+	}
+	t.mounts[mntSrc] = append(cids, containerId)
+}
+
+func (t *exclusiveMntTable) remove(mntSrc, containerId string) {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+
+	cids, found := t.mounts[mntSrc]
+	if !found {
+		return
+	}
+
+	cids = utils.StringSliceRemove(cids, []string{containerId})
+
+	if len(cids) > 0 {
+		t.mounts[mntSrc] = cids
+	} else {
+		delete(t.mounts, mntSrc)
+	}
+}
 
 func allocSubidRange(subID []user.SubID, size, min, max uint64) ([]user.SubID, error) {
 	var holeStart, holeEnd uint64
@@ -371,16 +414,24 @@ func removeDirContents(path string) error {
 }
 
 func rChown(path string, uid, gid uint32) error {
-	return filepath.Walk(path, func(name string, info os.FileInfo, err error) error {
-		if err == nil {
-			err = os.Chown(name, int(uid), int(gid))
-			if os.IsNotExist(err) {
-				logrus.Debugf("failed to change ownership of %s: %s", name, err)
-				return nil
-			}
-		}
-		return err
-	})
+
+	// This operation can take a while, specially if the directory hierarchy under path is
+	// heavily populated. Thus, performance is important. Our experiments indicate that
+	// using the chown(1) command is faster than doing a directory walk + chown syscall
+	// with golang. With the golang approach, both filepath.Walk() and godirwalk.Walk()
+	// were slower than chown(1). The filepath.Walk() was twice as slow as chown(1), while
+	// godriwalk.Walk() was 15% slower than chown(1).
+
+	owner := strconv.FormatUint(uint64(uid), 10)
+	group := strconv.FormatUint(uint64(gid), 10)
+	perm := fmt.Sprintf("%s:%s", owner, group)
+
+	cmd := exec.Command("chown", "-R", perm, path)
+	err := cmd.Run()
+	if err != nil {
+		logrus.Errorf("failed to change ownership of %s: %s", path, err)
+	}
+	return nil
 }
 
 // Sanitize the given container's rootfs.
@@ -613,4 +664,51 @@ func followSymlinksUnder(dir string) ([]string, error) {
 	}
 
 	return symlinks, nil
+}
+
+func checkMntSrcOwnership(mntSrc string, uid, gid uint32) (bool, uint32, uint32, error) {
+
+	// The ownership check is done by checking the ownership of the mount source dir
+	// and the first level subdirs under it (if any), and comparing their
+	// owner:group versus that of the container's root user. This heuristic works
+	// well for the mounts for which we normally do preps (e.g., mounts over the
+	// container's /var/lib/docker, /var/lib/kubelet, etc.). We want to avoid an
+	// exhaustive check as it can be quite slow if the directory hierarchy underneath
+	// the mount source is extensive (e.g., if we are bind-mounting a fully populated
+	// docker cache on the host to the container's /var/lib/docker).
+
+	var needChown bool
+	var mntSrcUid, mntSrcGid uint32
+
+	// mnt src ownership check
+	fi, err := os.Stat(mntSrc)
+	if err != nil {
+		return false, 0, 0, err
+	}
+
+	st, _ := fi.Sys().(*syscall.Stat_t)
+
+	mntSrcUid = st.Uid
+	mntSrcGid = st.Gid
+
+	if mntSrcUid != uid || mntSrcGid != gid {
+		return true, mntSrcUid, mntSrcGid, nil
+	}
+
+	// mnt src subdir ownership check
+	dirFis := []os.FileInfo{}
+
+	dirFis, err = ioutil.ReadDir(mntSrc)
+	if err != nil {
+		return false, 0, 0, err
+	}
+
+	for _, fi := range dirFis {
+		st, _ := fi.Sys().(*syscall.Stat_t)
+		if st.Uid != uid || st.Gid != gid {
+			needChown = true
+		}
+	}
+
+	return needChown, mntSrcUid, mntSrcGid, nil
 }
