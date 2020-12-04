@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"os"
 	"sync"
-	"syscall"
 
 	"github.com/fsnotify/fsnotify"
 	grpc "github.com/nestybox/sysbox-ipc/sysboxMgrGrpc"
@@ -97,8 +96,7 @@ type SysboxMgr struct {
 	rtLock            sync.Mutex
 	rootfsMonStop     chan int
 	rootfsWatcher     *fsnotify.Watcher
-	mntPrepTable      map[string]string // mount source -> cont id
-	mntPrepLock       sync.Mutex
+	exclMntTable      *exclusiveMntTable
 }
 
 // newSysboxMgr creates an instance of the sysbox manager
@@ -190,7 +188,7 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		contTable:         make(map[string]containerInfo),
 		rootfsTable:       make(map[string]string),
 		rootfsMonStop:     make(chan int),
-		mntPrepTable:      make(map[string]string),
+		exclMntTable:      newExclusiveMntTable(),
 	}
 
 	cb := &grpc.ServerCallbacks{
@@ -327,16 +325,19 @@ func (mgr *SysboxMgr) unregister(id string) error {
 	}
 
 	// revert mount prep actions
-	mgr.mntPrepLock.Lock()
 	for _, revInfo := range info.mntPrepRev {
 		if revInfo.chown {
+			logrus.Infof("reverting chown on %s to %d:%d for %s", revInfo.path, revInfo.origUid, revInfo.origGid, id)
+
 			if err = rChown(revInfo.path, revInfo.origUid, revInfo.origGid); err != nil {
 				logrus.Warnf("failed to revert ownership of mount source at %s: %s", revInfo.path, err)
 			}
+
+			logrus.Infof("done reverting chown on %s for %s", revInfo.path, id)
 		}
-		delete(mgr.mntPrepTable, revInfo.path)
+
+		mgr.exclMntTable.remove(revInfo.path, id)
 	}
-	mgr.mntPrepLock.Unlock()
 
 	mgr.ctLock.Lock()
 	mgr.contTable[id] = info
@@ -604,8 +605,9 @@ func (mgr *SysboxMgr) autoRemoveCheck(id string) {
 	logrus.Debugf("autoRemoveCheck: done for %s (autoRemove = %v)\n", id, info.autoRemove)
 }
 
-func (mgr *SysboxMgr) prepMounts(id string, uid, gid uint32, shiftUids bool, prepList []ipcLib.MountPrepInfo) error {
-	var origUid, origGid uint32
+func (mgr *SysboxMgr) prepMounts(id string, uid, gid uint32, shiftUids bool, prepList []ipcLib.MountPrepInfo) (err error) {
+
+	logrus.Debugf("preparing mounts for %s: %+v", id, prepList)
 
 	// get container info
 	mgr.ctLock.Lock()
@@ -617,65 +619,63 @@ func (mgr *SysboxMgr) prepMounts(id string, uid, gid uint32, shiftUids bool, pre
 	}
 
 	for _, prepInfo := range prepList {
+
+		var origUid, origGid uint32
 		src := prepInfo.Source
 
-		// Exclusive mounts are mounts that should be mounted in one sys container
-		// at a given time; it's OK if it's mounted in multiple containers, as
-		// long as only one container uses it. If the mount is exclusive and
-		// another sys container has the same mount source, generate a warning.
+		// Exclusive mounts are mounts that should be mounted in one sys container at a
+		// given time; it's OK if it's mounted in multiple containers, as long as only one
+		// container uses it. If the mount is exclusive and another sys container has the
+		// same mount source, exclMntTable.Add() will generate a warning.
 
-		mgr.mntPrepLock.Lock()
-		cid, found := mgr.mntPrepTable[src]
-		if found && prepInfo.Exclusive {
-			logrus.Warnf("mount source at %s should be mounted in one container only, but is already mounted in container %s", src, cid)
+		if prepInfo.Exclusive {
+			mgr.exclMntTable.add(src, id)
+			defer func() {
+				if err != nil {
+					mgr.exclMntTable.remove(src, id)
+				}
+			}()
 		}
-		mgr.mntPrepTable[src] = id
-		mgr.mntPrepLock.Unlock()
 
-		// if uid shifting is enabled, modify the ownership of the mount source to uid:gid
+		// If uid shifting is enabled, check if the mount source has ownership matching that
+		// of the container's root user. If not, modify the ownership of the mount source
+		// accordingly.
+
+		needChown := false
+
 		if shiftUids {
 
-			// get the current uid(gid) for the mount source
-			fi, err := os.Stat(src)
+			needChown, origUid, origGid, err = checkMntSrcOwnership(src, uid, gid)
 			if err != nil {
-				mgr.mntPrepLock.Lock()
-				delete(mgr.mntPrepTable, src)
-				mgr.mntPrepLock.Unlock()
-				return fmt.Errorf("failed to stat mount source at %s", src)
+				return fmt.Errorf("failed to check mount source ownership: %s", err)
 			}
 
-			st, ok := fi.Sys().(*syscall.Stat_t)
-			if !ok {
-				mgr.mntPrepLock.Lock()
-				delete(mgr.mntPrepTable, src)
-				mgr.mntPrepLock.Unlock()
-				return fmt.Errorf("failed to convert to syscall.Stat_t")
-			}
+			if needChown {
+				logrus.Infof("chowning %s to %d:%d for %s", src, uid, gid, id)
 
-			origUid = st.Uid
-			origGid = st.Gid
+				if err = rChown(src, uid, gid); err != nil {
+					return fmt.Errorf("failed to chown mount source at %s: %s", src, err)
+				}
 
-			if err := rChown(src, uid, gid); err != nil {
-				mgr.mntPrepLock.Lock()
-				delete(mgr.mntPrepTable, src)
-				mgr.mntPrepLock.Unlock()
-				return fmt.Errorf("failed to chown mount source at %s: %s", src, err)
+				logrus.Infof("done chowning %s for %s", src, id)
 			}
 		}
 
 		// store the prep info so we can revert it when the container is stopped
 		revInfo := mntPrepRevInfo{
 			path:    src,
-			chown:   shiftUids,
+			chown:   needChown,
 			origUid: origUid,
 			origGid: origGid,
 		}
-		info.mntPrepRev = append(info.mntPrepRev, revInfo)
 
+		info.mntPrepRev = append(info.mntPrepRev, revInfo)
 		mgr.ctLock.Lock()
 		mgr.contTable[id] = info
 		mgr.ctLock.Unlock()
 	}
+
+	logrus.Debugf("done preparing mounts for %s", id)
 
 	return nil
 }
