@@ -183,7 +183,6 @@ func TestAllocSubidRange(t *testing.T) {
 	}
 	want = append(subID, user.SubID{"sysbox", 296608, 65536})
 	compareSubidRanges(t, want, got)
-
 }
 
 func verifyFileData(path string, data []byte) error {
@@ -238,9 +237,9 @@ sysbox:231072:268435456
 
 	// at beginning of range
 	subidFilePre = `user2:165536:65536`
-	subidFilePost = `user2:165536:65536
-sysbox:100000:65536
-`
+	subidFilePost = `sysbox:100000:65536
+user2:165536:65536`
+
 	if err := testConfigSubidRangeHelper(subidFilePre, subidFilePost, 65536, 100000, 600100000); err != nil {
 		t.Errorf(err.Error())
 	}
@@ -249,9 +248,9 @@ sysbox:100000:65536
 	subidFilePre = `user1:100000:65536
 user2:231072:65536`
 	subidFilePost = `user1:100000:65536
-user2:231072:65536
 sysbox:165536:65536
-`
+user2:231072:65536`
+
 	if err := testConfigSubidRangeHelper(subidFilePre, subidFilePost, 65536, 100000, 600100000); err != nil {
 		t.Errorf(err.Error())
 	}
@@ -260,6 +259,31 @@ sysbox:165536:65536
 	subidFilePre = `user1:100000:65536`
 	if err := testConfigSubidRangeHelper(subidFilePre, subidFilePost, 600034465, 100000, 600100000); err == nil {
 		t.Errorf("configSubidRange(): expected alloc error, got no error")
+	}
+
+	// do not disturb existing sysbox entry
+	subidFilePre = `user1:100000:65536
+sysbox:231072,65536
+user3:296608:65536`
+
+	subidFilePost = subidFilePre
+
+	if err := testConfigSubidRangeHelper(subidFilePre, subidFilePost, 65536, 100000, 600100000); err != nil {
+		t.Errorf(err.Error())
+	}
+
+	// replace redundant sysbox entries with one entry
+	subidFilePre = `user1:100000:65536
+sysbox:231072,65536
+user3:165536:65536
+sysbox:362144,65536`
+
+	subidFilePost = `user1:100000:65536
+user3:165536:65536
+sysbox:231072,65536`
+
+	if err := testConfigSubidRangeHelper(subidFilePre, subidFilePost, 65536, 100000, 600100000); err != nil {
+		t.Errorf(err.Error())
 	}
 }
 

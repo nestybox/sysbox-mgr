@@ -126,9 +126,6 @@ func allocSubidRange(subID []user.SubID, size, min, max uint64) ([]user.SubID, e
 }
 
 func writeSubidFile(path string, subID []user.SubID) error {
-
-	// TODO: lock the /etc/subuid(gid) file (?)
-
 	var buf bytes.Buffer
 	for _, id := range subID {
 		l := fmt.Sprintf("%s:%d:%d\n", id.Name, id.SubID, id.Count)
@@ -145,31 +142,45 @@ func configSubidRange(path string, size, min, max uint64) error {
 		return fmt.Errorf("error parsing file %s: %s", path, err)
 	}
 
-	// Remove existing config for user sysbox
-	//
-	// TODO: this only handles zero or one entries for user "sysbox" in the subuid file;
-	// it's possible (but rare) that there are multiple such entries though.
-
-	index := -1
+	// Check if there are any subids configured for user "sysbox"
+	numSysboxEntries := 0
+	idx := 0
 	for i, id := range subID {
 		if id.Name == "sysbox" {
-			if uint64(id.Count) == size {
-				return nil
-			}
-			index = i
+			numSysboxEntries = numSysboxEntries + 1
+			idx = i
 		}
 	}
 
-	if index >= 0 {
-		copy(subID[index:], subID[index+1:])
-		subID = subID[:len(subID)-1]
+	// If a single valid subID range for user "sysbox" is found, let's use it.
+	if numSysboxEntries == 1 && uint64(subID[idx].Count) == size {
+		return nil
 	}
 
+	// If there are multiple ranges for user sysbox (something we don't support)
+	// eliminate them and replace them with a single one.
+	if numSysboxEntries > 0 {
+		tmpSubID := []user.SubID{}
+		for _, id := range subID {
+			if id.Name != "sysbox" {
+				tmpSubID = append(tmpSubID, id)
+			}
+		}
+		subID = tmpSubID
+	}
+
+	// Allocate range for user sysbox
 	subID, err = allocSubidRange(subID, size, min, max)
 	if err != nil {
 		return fmt.Errorf("failed to configure subid range for sysbox: %s", err)
 	}
 
+	// Sort by subID
+	sort.Slice(subID, func(i, j int) bool {
+		return subID[i].SubID < subID[j].SubID
+	})
+
+	// Write it to the subuid file
 	if err = writeSubidFile(path, subID); err != nil {
 		return fmt.Errorf("failed to configure subid range for sysbox: %s", err)
 	}
