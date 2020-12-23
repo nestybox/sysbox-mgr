@@ -9,6 +9,7 @@ require (
 	github.com/mrunalp/fileutils v0.0.0-20171103030105-7d4729fb3618
 	github.com/nestybox/sysbox-ipc v0.0.0-00010101000000-000000000000
 	github.com/nestybox/sysbox-libs/dockerUtils v0.0.0-00010101000000-000000000000
+	github.com/nestybox/sysbox-libs/formatter v0.0.0-00010101000000-000000000000
 	github.com/nestybox/sysbox-libs/utils v0.0.0-00010101000000-000000000000
 	github.com/nestybox/sysbox-runc v0.0.0-00010101000000-000000000000
 	github.com/opencontainers/runc v0.0.0-00010101000000-000000000000
@@ -24,6 +25,8 @@ replace github.com/nestybox/sysbox-ipc => ../sysbox-ipc
 replace github.com/nestybox/sysbox-runc => ../sysbox-runc
 
 replace github.com/nestybox/sysbox-libs/utils => ../sysbox-libs/utils
+
+replace github.com/nestybox/sysbox-libs/formatter => ../sysbox-libs/formatter
 
 replace github.com/nestybox/sysbox-libs/dockerUtils => ../sysbox-libs/dockerUtils
 

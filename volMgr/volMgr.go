@@ -37,6 +37,7 @@ import (
 	"strconv"
 	"sync"
 
+	"github.com/nestybox/sysbox-libs/formatter"
 	"github.com/nestybox/sysbox-mgr/intf"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
@@ -142,7 +143,9 @@ func (m *vmgr) CreateVol(id, rootfs, mountpoint string, uid, gid uint32, shiftUi
 		},
 	}
 
-	logrus.Debugf("%s: created volume for container %s", m.name, id)
+	logrus.Debugf("%s: created volume for container %s",
+		m.name, formatter.ContainerID{id})
+
 	return mounts, nil
 }
 
@@ -153,7 +156,8 @@ func (m *vmgr) DestroyVol(id string) error {
 	vi, found := m.volTable[id]
 	if !found {
 		m.mu.Unlock()
-		return fmt.Errorf("failed to find vol info for container %s", id)
+		return fmt.Errorf("failed to find vol info for container %s",
+			formatter.ContainerID{id})
 	}
 	volPath := vi.volPath
 	m.mu.Unlock()
@@ -170,7 +174,9 @@ func (m *vmgr) DestroyVol(id string) error {
 	delete(m.volTable, id)
 	m.mu.Unlock()
 
-	logrus.Debugf("%s: destroyed volume for container %s", m.name, id)
+	logrus.Debugf("%s: destroyed volume for container %s",
+		m.name, formatter.ContainerID{id})
+
 	return nil
 }
 
@@ -185,13 +191,15 @@ func (m *vmgr) SyncOut(id string) error {
 	vi, found := m.volTable[id]
 	if !found {
 		m.mu.Unlock()
-		return fmt.Errorf("failed to find vol info for container %s", id)
+		return fmt.Errorf("failed to find vol info for container %s",
+			formatter.ContainerID{id})
 	}
 	m.mu.Unlock()
 
 	// If the container's rootfs is gone, bail
 	if _, err := os.Stat(vi.rootfs); os.IsNotExist(err) {
-		logrus.Debugf("%s: volume sync-out for container %s skipped: target %s does not exist", m.name, id, vi.rootfs)
+		logrus.Debugf("%s: volume sync-out for container %s skipped: target %s does not exist",
+			m.name, formatter.ContainerID{id}, vi.rootfs)
 		return nil
 	}
 
@@ -220,7 +228,8 @@ func (m *vmgr) SyncOut(id string) error {
 
 			_, err2 := os.Stat(vi.mountPath)
 			if err2 != nil && os.IsNotExist(err2) {
-				logrus.Debugf("%s: volume sync-out for container %s skipped: target %s does not exist", m.name, id, vi.mountPath)
+				logrus.Debugf("%s: volume sync-out for container %s skipped: target %s does not exist",
+					m.name, formatter.ContainerID{id}, vi.mountPath)
 				return nil
 			}
 
@@ -228,7 +237,9 @@ func (m *vmgr) SyncOut(id string) error {
 		}
 	}
 
-	logrus.Debugf("%s: sync'd-out volume for container %s", m.name, id)
+	logrus.Debugf("%s: sync'd-out volume for container %s",
+		m.name, formatter.ContainerID{id})
+
 	return nil
 }
 
@@ -236,10 +247,12 @@ func (m *vmgr) SyncOut(id string) error {
 func (m *vmgr) SyncOutAndDestroyAll() {
 	for id, _ := range m.volTable {
 		if err := m.SyncOut(id); err != nil {
-			logrus.Warnf("%s: failed to sync-out volumes for container %s: %s", m.name, id, err)
+			logrus.Warnf("%s: failed to sync-out volumes for container %s: %s",
+				m.name, formatter.ContainerID{id}, err)
 		}
 		if err := m.DestroyVol(id); err != nil {
-			logrus.Warnf("%s: failed to destroy volumes for container %s: %s", m.name, id, err)
+			logrus.Warnf("%s: failed to destroy volumes for container %s: %s",
+				m.name, formatter.ContainerID{id}, err)
 		}
 	}
 }
@@ -271,7 +284,7 @@ func (m *vmgr) rsyncVol(src, dest string, uid, gid uint32, shiftUids bool) error
 
 	err := cmd.Run()
 	if err != nil {
-		return fmt.Errorf("failed to sync %s to %s: %v %v\n", srcDir, dest, string(output.Bytes()), err)
+		return fmt.Errorf("failed to sync %s to %s: %v %v", srcDir, dest, string(output.Bytes()), err)
 	}
 
 	return nil

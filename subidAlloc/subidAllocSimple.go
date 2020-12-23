@@ -30,6 +30,7 @@ import (
 	"sort"
 
 	mapset "github.com/deckarep/golang-set"
+	"github.com/nestybox/sysbox-libs/formatter"
 	intf "github.com/nestybox/sysbox-mgr/intf"
 	"github.com/nestybox/sysbox-runc/libcontainer/user"
 	"github.com/sirupsen/logrus"
@@ -131,12 +132,13 @@ func getCommonRanges(uidRanges, gidRanges []user.SubID) []user.SubID {
 // Implements intf.SubidAlloc.Alloc
 func (sub *subidAlloc) Alloc(id string, size uint64) (uint32, uint32, error) {
 	subid := sub.idRange
-	logrus.Debugf("Alloc(%s, %v) = %v, %v", id, size, subid, subid)
+	logrus.Debugf("Alloc(%s, %v) = %v, %v",
+		formatter.ContainerID{id}, size, subid, subid)
 	return uint32(subid.SubID), uint32(subid.SubID), nil
 }
 
 // Implements intf.SubidAlloc.Free
 func (sub *subidAlloc) Free(id string) error {
-	logrus.Debugf("Free(%v)", id)
+	logrus.Debugf("Free(%v)", formatter.ContainerID{id})
 	return nil
 }

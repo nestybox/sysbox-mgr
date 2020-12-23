@@ -25,6 +25,7 @@ import (
 	grpc "github.com/nestybox/sysbox-ipc/sysboxMgrGrpc"
 	ipcLib "github.com/nestybox/sysbox-ipc/sysboxMgrLib"
 	"github.com/nestybox/sysbox-libs/dockerUtils"
+	"github.com/nestybox/sysbox-libs/formatter"
 	libutils "github.com/nestybox/sysbox-libs/utils"
 	utils "github.com/nestybox/sysbox-libs/utils"
 	intf "github.com/nestybox/sysbox-mgr/intf"
@@ -233,7 +234,7 @@ func (mgr *SysboxMgr) Stop() error {
 	if len(mgr.contTable) > 0 {
 		logrus.Warn("The following containers are active and will stop operating properly:")
 		for id := range mgr.contTable {
-			logrus.Warnf("container id: %s", id)
+			logrus.Warnf("container id: %s", formatter.ContainerID{id})
 		}
 	}
 	mgr.ctLock.Unlock()
@@ -272,14 +273,15 @@ func (mgr *SysboxMgr) register(id string) (*ipcLib.MgrConfig, error) {
 		mgr.contTable[id] = info
 		mgr.ctLock.Unlock()
 
-		logrus.Infof("registered new container %s", id)
+		logrus.Infof("registered new container %s", formatter.ContainerID{id})
 		return mgr.mgrCfg, nil
 	}
 
 	// re-started container
 	if info.state != stopped {
 		mgr.ctLock.Unlock()
-		return nil, fmt.Errorf("redundant container registration for container %s", id)
+		return nil, fmt.Errorf("redundant container registration for container %s",
+			formatter.ContainerID{id})
 	}
 
 	info.state = restarted
@@ -296,7 +298,7 @@ func (mgr *SysboxMgr) register(id string) (*ipcLib.MgrConfig, error) {
 		logrus.Debugf("removed fs watch on %s", rootfs)
 	}
 
-	logrus.Infof("registered container %s", id)
+	logrus.Infof("registered container %s", formatter.ContainerID{id})
 	return mgr.mgrCfg, nil
 }
 
@@ -310,16 +312,19 @@ func (mgr *SysboxMgr) unregister(id string) error {
 	mgr.ctLock.Unlock()
 
 	if !found {
-		return fmt.Errorf("can't unregister container %s; not found in container table", id)
+		return fmt.Errorf("can't unregister container %s; not found in container table",
+			formatter.ContainerID{id})
 	}
 	if info.state == stopped {
-		return fmt.Errorf("redundant container unregistration for container %s", id)
+		return fmt.Errorf("redundant container unregistration for container %s",
+			formatter.ContainerID{id})
 	}
 	info.state = stopped
 
 	if len(info.shiftfsMarks) != 0 {
 		if err = mgr.shiftfsMgr.Unmark(id, info.shiftfsMarks); err != nil {
-			logrus.Warnf("failed to remove shiftfs marks for container %s: %s", id, err)
+			logrus.Warnf("failed to remove shiftfs marks for container %s: %s",
+				formatter.ContainerID{id}, err)
 		}
 		info.shiftfsMarks = []configs.ShiftfsMount{}
 	}
@@ -327,13 +332,15 @@ func (mgr *SysboxMgr) unregister(id string) error {
 	// revert mount prep actions
 	for _, revInfo := range info.mntPrepRev {
 		if revInfo.chown {
-			logrus.Infof("reverting chown on %s to %d:%d for %s", revInfo.path, revInfo.origUid, revInfo.origGid, id)
+			logrus.Infof("reverting chown on %s to %d:%d for %s", revInfo.path, revInfo.origUid,
+				revInfo.origGid, formatter.ContainerID{id})
 
 			if err = rChown(revInfo.path, revInfo.origUid, revInfo.origGid); err != nil {
 				logrus.Warnf("failed to revert ownership of mount source at %s: %s", revInfo.path, err)
 			}
 
-			logrus.Infof("done reverting chown on %s for %s", revInfo.path, id)
+			logrus.Infof("done reverting chown on %s for %s", revInfo.path,
+				formatter.ContainerID{id})
 		}
 
 		mgr.exclMntTable.remove(revInfo.path, id)
@@ -346,7 +353,8 @@ func (mgr *SysboxMgr) unregister(id string) error {
 	// Request the volume managers to copy their contents to the container's rootfs.
 	if !info.autoRemove {
 		if err := mgr.volSyncOut(id, info); err != nil {
-			logrus.Warnf("sync-out for container %s failed: %v", id, err)
+			logrus.Warnf("sync-out for container %s failed: %v",
+				formatter.ContainerID{id}, err)
 		}
 	}
 
@@ -375,7 +383,7 @@ func (mgr *SysboxMgr) unregister(id string) error {
 		logrus.Debugf("added fs watch on %s", rootfs)
 	}
 
-	logrus.Infof("unregistered container %s", id)
+	logrus.Infof("unregistered container %s", formatter.ContainerID{id})
 	return nil
 }
 
@@ -468,17 +476,20 @@ func (mgr *SysboxMgr) removeCont(id string) {
 
 		}
 		if err != nil {
-			logrus.Errorf("rootfsMon: failed to destroy volume backing %s for container %s: %s", mnt.kind, id, err)
+			logrus.Errorf("rootfsMon: failed to destroy volume backing %s for container %s: %s",
+				mnt.kind, formatter.ContainerID{id}, err)
 		}
 	}
 
 	if info.uidInfo.size != 0 {
 		if err := mgr.subidAlloc.Free(id); err != nil {
-			logrus.Errorf("rootfsMon: failed to free uid(gid) for container %s: %s", id, err)
+			logrus.Errorf("rootfsMon: failed to free uid(gid) for container %s: %s",
+				formatter.ContainerID{id}, err)
 		}
 	}
 
-	logrus.Infof("released resources for container %s", id)
+	logrus.Infof("released resources for container %s",
+		formatter.ContainerID{id})
 }
 
 func (mgr *SysboxMgr) reqMounts(id, rootfs string, uid, gid uint32, shiftUids bool, reqList []ipcLib.MountReqInfo) ([]specs.Mount, error) {
@@ -489,7 +500,8 @@ func (mgr *SysboxMgr) reqMounts(id, rootfs string, uid, gid uint32, shiftUids bo
 	mgr.ctLock.Unlock()
 
 	if !found {
-		return nil, fmt.Errorf("container %s is not registered", id)
+		return nil, fmt.Errorf("container %s is not registered",
+			formatter.ContainerID{id})
 	}
 
 	// if this is a stopped container that is being re-started, reuse its prior mounts
@@ -525,7 +537,8 @@ func (mgr *SysboxMgr) reqMounts(id, rootfs string, uid, gid uint32, shiftUids bo
 		}
 
 		if err != nil {
-			return nil, fmt.Errorf("failed to setup mounts backing %s for container %s: %s", req.Dest, id, err)
+			return nil, fmt.Errorf("failed to setup mounts backing %s for container %s: %s", req.Dest,
+				formatter.ContainerID{id}, err)
 		}
 
 		mntInfos = append(mntInfos, mountInfo{kind: req.Kind, mounts: m})
@@ -576,18 +589,21 @@ func (mgr *SysboxMgr) autoRemoveCheck(id string) {
 	}
 	mgr.ctLock.Unlock()
 
-	logrus.Debugf("autoRemoveCheck: Docker query start for %s\n", id)
+	logrus.Debugf("autoRemoveCheck: Docker query start for %s",
+		formatter.ContainerID{id})
 
 	docker, err := dockerUtils.DockerConnect()
 	if err != nil {
-		logrus.Debugf("autoRemoveCheck: Docker connection failed for %s: %s\n", id, err)
+		logrus.Debugf("autoRemoveCheck: Docker connection failed for %s: %s",
+			formatter.ContainerID{id}, err)
 		return
 	}
 	defer docker.Disconnect()
 
 	ci, err := docker.ContainerGetInfo(id)
 	if err != nil {
-		logrus.Debugf("autoRemoveCheck: Docker query for %s failed: %s\n", id, err)
+		logrus.Debugf("autoRemoveCheck: Docker query for %s failed: %s",
+			formatter.ContainerID{id}, err)
 		return
 	}
 
@@ -602,12 +618,14 @@ func (mgr *SysboxMgr) autoRemoveCheck(id string) {
 	mgr.contTable[id] = info
 	mgr.ctLock.Unlock()
 
-	logrus.Debugf("autoRemoveCheck: done for %s (autoRemove = %v)\n", id, info.autoRemove)
+	logrus.Debugf("autoRemoveCheck: done for %s (autoRemove = %v)",
+		formatter.ContainerID{id}, info.autoRemove)
 }
 
 func (mgr *SysboxMgr) prepMounts(id string, uid, gid uint32, shiftUids bool, prepList []ipcLib.MountPrepInfo) (err error) {
 
-	logrus.Debugf("preparing mounts for %s: %+v", id, prepList)
+	logrus.Debugf("preparing mounts for %s: %+v",
+		formatter.ContainerID{id}, prepList)
 
 	// get container info
 	mgr.ctLock.Lock()
@@ -615,7 +633,8 @@ func (mgr *SysboxMgr) prepMounts(id string, uid, gid uint32, shiftUids bool, pre
 	mgr.ctLock.Unlock()
 
 	if !found {
-		return fmt.Errorf("container %s is not registered", id)
+		return fmt.Errorf("container %s is not registered",
+			formatter.ContainerID{id})
 	}
 
 	for _, prepInfo := range prepList {
@@ -651,13 +670,15 @@ func (mgr *SysboxMgr) prepMounts(id string, uid, gid uint32, shiftUids bool, pre
 			}
 
 			if needChown {
-				logrus.Infof("chowning %s to %d:%d for %s", src, uid, gid, id)
+				logrus.Infof("chowning %s to %d:%d for %s",
+					src, uid, gid, formatter.ContainerID{id})
 
 				if err = rChown(src, uid, gid); err != nil {
 					return fmt.Errorf("failed to chown mount source at %s: %s", src, err)
 				}
 
-				logrus.Infof("done chowning %s for %s", src, id)
+				logrus.Infof("done chowning %s for %s",
+					src, formatter.ContainerID{id})
 			}
 		}
 
@@ -675,7 +696,7 @@ func (mgr *SysboxMgr) prepMounts(id string, uid, gid uint32, shiftUids bool, pre
 		mgr.ctLock.Unlock()
 	}
 
-	logrus.Debugf("done preparing mounts for %s", id)
+	logrus.Debugf("done preparing mounts for %s", formatter.ContainerID{id})
 
 	return nil
 }
@@ -688,7 +709,8 @@ func (mgr *SysboxMgr) allocSubid(id string, size uint64) (uint32, uint32, error)
 	mgr.ctLock.Unlock()
 
 	if !found {
-		return 0, 0, fmt.Errorf("container %s is not registered", id)
+		return 0, 0, fmt.Errorf("container %s is not registered",
+			formatter.ContainerID{id})
 	}
 
 	// if this is a newly started container, allocate the uid/gid range
@@ -696,7 +718,8 @@ func (mgr *SysboxMgr) allocSubid(id string, size uint64) (uint32, uint32, error)
 	if info.uidInfo.size == 0 {
 		uid, gid, err := mgr.subidAlloc.Alloc(id, size)
 		if err != nil {
-			return uid, gid, fmt.Errorf("failed to allocate uid(gid) for %s: %s", id, err)
+			return uid, gid, fmt.Errorf("failed to allocate uid(gid) for %s: %s",
+				formatter.ContainerID{id}, err)
 		}
 		info.uidInfo = uidInfo{
 			uid:  uid,
@@ -719,7 +742,7 @@ func (mgr *SysboxMgr) reqShiftfsMark(id string, rootfs string, mounts []configs.
 	mgr.ctLock.Unlock()
 
 	if !found {
-		return fmt.Errorf("container %s is not registered", id)
+		return fmt.Errorf("container %s is not registered", formatter.ContainerID{id})
 	}
 
 	if len(info.shiftfsMarks) == 0 {
@@ -751,7 +774,7 @@ func (mgr *SysboxMgr) reqFsState(id, rootfs string) ([]configs.FsEntry, error) {
 	mgr.ctLock.Unlock()
 
 	if !found {
-		return nil, fmt.Errorf("container %s is not registered", id)
+		return nil, fmt.Errorf("container %s is not registered", formatter.ContainerID{id})
 	}
 
 	var fsEntries []configs.FsEntry
@@ -760,7 +783,8 @@ func (mgr *SysboxMgr) reqFsState(id, rootfs string) ([]configs.FsEntry, error) {
 	// dependencies present in "/usr/src" and "/lib/modules/kernel" paths.
 	entry, err := mgr.getKernelHeaderSoftlink(rootfs)
 	if err != nil {
-		return nil, fmt.Errorf("failed to obtain kernel-headers softlink state for container %s: %s", id, err)
+		return nil, fmt.Errorf("failed to obtain kernel-headers softlink state for container %s: %s",
+			formatter.ContainerID{id}, err)
 	}
 	if entry == nil {
 		return nil, nil
@@ -817,7 +841,8 @@ func (mgr *SysboxMgr) pause(id string) error {
 	mgr.ctLock.Unlock()
 
 	if !found {
-		return fmt.Errorf("can't pause container %s; not found in container table", id)
+		return fmt.Errorf("can't pause container %s; not found in container table",
+			formatter.ContainerID{id})
 	}
 
 	// Request all volume managers to sync back contents to the container's rootfs
@@ -837,7 +862,8 @@ func (mgr *SysboxMgr) pause(id string) error {
 
 		}
 		if err != nil {
-			return fmt.Errorf("sync-out for volume backing %s for container %s failed: %v", mnt.kind, id, err)
+			return fmt.Errorf("sync-out for volume backing %s for container %s failed: %v",
+				mnt.kind, formatter.ContainerID{id}, err)
 		}
 	}
 

@@ -28,6 +28,7 @@ import (
 	"os/exec"
 	"sync"
 
+	"github.com/nestybox/sysbox-libs/formatter"
 	intf "github.com/nestybox/sysbox-mgr/intf"
 	"github.com/nestybox/sysbox-runc/libsysbox/shiftfs"
 	"github.com/opencontainers/runc/libcontainer/configs"
@@ -106,7 +107,8 @@ func (sm *mgr) Unmark(id string, mount []configs.ShiftfsMount) error {
 		// Remove matching container-id from mpMap entry
 		ids, err := removeID(ids, id)
 		if err != nil {
-			return fmt.Errorf("did not find container id %s in mount-point map entry for %s", id, m.Source)
+			return fmt.Errorf("did not find container id %s in mount-point map entry for %s",
+				formatter.ContainerID{id}, m.Source)
 		}
 
 		// If after removal the mpMap entry is empty it means there are no more containers
