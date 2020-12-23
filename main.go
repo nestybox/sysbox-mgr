@@ -69,6 +69,11 @@ func main() {
 			Value: "info",
 			Usage: "log categories to include (debug, info, warning, error, fatal)",
 		},
+		cli.StringFlag{
+			Name:  "log-format",
+			Value: "text",
+			Usage: "log format; must be json or text (default = text)",
+		},
 		cli.BoolTFlag{
 			Name:  "alias-dns",
 			Usage: "aliases the DNS IP inside the system container to ensure it never has a localhost address; required for system containers on user-defined Docker bridge networks (default = true)",
@@ -106,14 +111,18 @@ func main() {
 			if err != nil {
 				return err
 			}
+			logrus.SetOutput(f)
+		}
 
-			// Set a proper logging formatter.
+		if logFormat := ctx.GlobalString("log-format"); logFormat == "json" {
+			logrus.SetFormatter(&logrus.JSONFormatter{
+				TimestampFormat: "2006-01-02 15:04:05",
+			})
+		} else {
 			logrus.SetFormatter(&logrus.TextFormatter{
-				ForceColors:     true,
 				TimestampFormat: "2006-01-02 15:04:05",
 				FullTimestamp:   true,
 			})
-			logrus.SetOutput(f)
 		}
 
 		// Set desired log-level.
