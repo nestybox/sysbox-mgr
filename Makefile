@@ -3,7 +3,7 @@
 #
 # Note: targets must execute from the $SYSMGR_DIR
 
-.PHONY: clean sysbox-mgr-debug sysbox-mgr-static validate list-packages
+.PHONY: clean sysbox-mgr-debug sysbox-mgr-static lint list-packages
 
 GO := go
 
@@ -30,9 +30,9 @@ sysbox-mgr-static: $(SYSMGR_SRC) $(SYSMGR_GRPC_SRC) $(LIBDOCKER_SRC)
 		-installsuffix netgo -ldflags "-w -extldflags -static" \
 		-o sysbox-mgr
 
-validate:
-	script/validate-gofmt
+lint:
 	$(GO) vet $(allpackages)
+	$(GO) fmt $(allpackages)
 
 listpackages:
 	@echo $(allpackages)
