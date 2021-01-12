@@ -4,20 +4,20 @@ go 1.13
 
 require (
 	github.com/deckarep/golang-set v1.7.1
-	github.com/docker/docker v1.13.1
+	github.com/docker/docker v20.10.2+incompatible
 	github.com/fsnotify/fsnotify v1.4.7
-	github.com/mrunalp/fileutils v0.0.0-20171103030105-7d4729fb3618
+	github.com/mrunalp/fileutils v0.5.0
 	github.com/nestybox/sysbox-ipc v0.0.0-00010101000000-000000000000
 	github.com/nestybox/sysbox-libs/dockerUtils v0.0.0-00010101000000-000000000000
 	github.com/nestybox/sysbox-libs/formatter v0.0.0-00010101000000-000000000000
 	github.com/nestybox/sysbox-libs/utils v0.0.0-00010101000000-000000000000
 	github.com/nestybox/sysbox-runc v0.0.0-00010101000000-000000000000
 	github.com/opencontainers/runc v0.0.0-00010101000000-000000000000
-	github.com/opencontainers/runtime-spec v1.0.2
-	github.com/pkg/profile v1.4.0
-	github.com/sirupsen/logrus v1.4.2
-	github.com/urfave/cli v1.20.0
-	golang.org/x/sys v0.0.0-20201029080932-201ba4db2418
+	github.com/opencontainers/runtime-spec v1.0.3-0.20200929063507-e6143ca7d51d
+	github.com/pkg/profile v1.5.0
+	github.com/sirupsen/logrus v1.7.0
+	github.com/urfave/cli v1.22.1
+	golang.org/x/sys v0.0.0-20201107080550-4d91cf3a1aaf
 )
 
 replace github.com/nestybox/sysbox-ipc => ../sysbox-ipc
