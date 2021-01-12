@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/fsnotify/fsnotify"
 	grpc "github.com/nestybox/sysbox-ipc/sysboxMgrGrpc"
@@ -592,7 +593,9 @@ func (mgr *SysboxMgr) autoRemoveCheck(id string) {
 	logrus.Debugf("autoRemoveCheck: Docker query start for %s",
 		formatter.ContainerID{id})
 
-	docker, err := dockerUtils.DockerConnect()
+	timeout := time.Duration(3 * time.Second)
+
+	docker, err := dockerUtils.DockerConnect(timeout)
 	if err != nil {
 		logrus.Debugf("autoRemoveCheck: Docker connection failed for %s: %s",
 			formatter.ContainerID{id}, err)

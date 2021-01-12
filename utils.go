@@ -454,13 +454,8 @@ func sanitizeRootfs(id, rootfs string) string {
 	// determine if a container was stopped or removed. Instead, we use the rootfs path up
 	// to <container-id>.
 
-	docker, err := dockerUtils.DockerConnect()
-	if err != nil {
-		return rootfs
-	}
-	defer docker.Disconnect()
-
-	if docker.ContainerIsDocker(id) {
+	isDocker, err := dockerUtils.ContainerIsDocker(id, rootfs)
+	if err == nil && isDocker {
 		if strings.Contains(rootfs, "overlay2") && filepath.Base(rootfs) == "merged" {
 			return filepath.Dir(rootfs)
 		}
