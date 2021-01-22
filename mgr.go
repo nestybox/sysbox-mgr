@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	systemd "github.com/coreos/go-systemd/daemon"
 	"github.com/fsnotify/fsnotify"
 	grpc "github.com/nestybox/sysbox-ipc/sysboxMgrGrpc"
 	ipcLib "github.com/nestybox/sysbox-ipc/sysboxMgrLib"
@@ -221,6 +222,8 @@ func (mgr *SysboxMgr) Start() error {
 	// start the rootfs monitor (listens for rootfs watch events)
 	go mgr.rootfsMon()
 
+	systemd.SdNotify(false, systemd.SdNotifyReady)
+
 	logrus.Info("Ready ...")
 
 	// listen for grpc connections
@@ -230,6 +233,8 @@ func (mgr *SysboxMgr) Start() error {
 func (mgr *SysboxMgr) Stop() error {
 
 	logrus.Info("Stopping (gracefully) ...")
+
+	systemd.SdNotify(false, systemd.SdNotifyStopping)
 
 	mgr.ctLock.Lock()
 	if len(mgr.contTable) > 0 {
