@@ -16,7 +16,10 @@ SYSMGR_GRPC_SRC := $(shell find $(SYSMGR_GRPC_DIR) 2>&1 | grep -E '.*\.(c|h|go|p
 LIBDOCKER_DIR := ../sysbox-libs/dockerUtils
 LIBDOCKER_SRC := $(shell find $(LIBDOCKER_DIR) 2>&1 | grep -E '.*\.(go)')
 
-LDFLAGS := '-X main.version=${VERSION} -X main.commitId=${COMMIT_ID} \
+COMMIT_NO := $(shell git rev-parse HEAD 2> /dev/null || true)
+COMMIT ?= $(if $(shell git status --porcelain --untracked-files=no),"$(COMMIT_NO)-dirty","$(COMMIT_NO)")
+
+LDFLAGS := '-X main.version=${VERSION} -X main.commitId=${COMMIT} \
 			-X "main.builtAt=${BUILT_AT}" -X main.builtBy=${BUILT_BY}'
 
 sysbox-mgr: $(SYSMGR_SRC) $(SYSMGR_GRPC_SRC) $(LIBDOCKER_SRC)
