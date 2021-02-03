@@ -26,11 +26,11 @@ sysbox-mgr: $(SYSMGR_SRC) $(SYSMGR_GRPC_SRC) $(LIBDOCKER_SRC)
 	$(GO) build -ldflags ${LDFLAGS} -o sysbox-mgr
 
 sysbox-mgr-debug: $(SYSMGR_SRC) $(SYSMGR_GRPC_SRC) $(LIBDOCKER_SRC)
-	$(GO) build -gcflags="all=-N -l" -o sysbox-mgr
+	$(GO) build -gcflags="all=-N -l" -ldflags ${LDFLAGS} -o sysbox-mgr
 
 sysbox-mgr-static: $(SYSMGR_SRC) $(SYSMGR_GRPC_SRC) $(LIBDOCKER_SRC)
 	CGO_ENABLED=1 $(GO) build -tags "netgo osusergo static_build" \
-		-installsuffix netgo -ldflags "-w -extldflags -static" \
+		-installsuffix netgo -ldflags "-w -extldflags -static" -ldflags ${LDFLAGS} \
 		-o sysbox-mgr
 
 lint:
