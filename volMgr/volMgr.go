@@ -125,7 +125,7 @@ func (m *vmgr) CreateVol(id, rootfs, mountpoint string, uid, gid uint32, shiftUi
 	}
 
 	if m.sync {
-		// sync the contents of container's mountpoint to the newly created volume ("sync-in")
+		// Sync the contents of container's mountpoint to the newly created volume ("sync-in")
 		if _, err := os.Stat(mountPath); err == nil {
 			if err = m.rsyncVol(mountPath, volPath, uid, gid, shiftUids); err != nil {
 				os.RemoveAll(volPath)
@@ -259,6 +259,12 @@ func (m *vmgr) SyncOutAndDestroyAll() {
 
 // rsyncVol performs an rsync from src to dest; if shiftUids is true, the rsync
 // modifies the ownership of files copied to dest to match the given uid(gid).
+//
+// Note that this can result in many file descriptors being opened by rsync,
+// which the kernel may account to sysbox-mgr. Thus, the file open limit for
+// sysbox-mgr should be very high / unlimited since the number of open files
+// depends on how much data there is to copy and how many containers are active
+// at a given time.
 func (m *vmgr) rsyncVol(src, dest string, uid, gid uint32, shiftUids bool) error {
 
 	var cmd *exec.Cmd
