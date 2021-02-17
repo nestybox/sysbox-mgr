@@ -207,19 +207,19 @@ func getSubidLimits(file string) ([]uint64, error) {
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.Contains(line, "SUB_UID_MIN") {
-			valStr := strings.Split(line, " ")[1]
+			valStr := strings.Fields(line)[1]
 			limits[0], err = strconv.ParseUint(valStr, 10, 64)
 		}
 		if strings.Contains(line, "SUB_UID_MAX") {
-			valStr := strings.Split(line, " ")[1]
+			valStr := strings.Fields(line)[1]
 			limits[1], err = strconv.ParseUint(valStr, 10, 64)
 		}
 		if strings.Contains(line, "SUB_GID_MIN") {
-			valStr := strings.Split(line, " ")[1]
+			valStr := strings.Fields(line)[1]
 			limits[2], err = strconv.ParseUint(valStr, 10, 64)
 		}
 		if strings.Contains(line, "SUB_GID_MAX") {
-			valStr := strings.Split(line, " ")[1]
+			valStr := strings.Fields(line)[1]
 			limits[3], err = strconv.ParseUint(valStr, 10, 64)
 		}
 		if err != nil {
