@@ -203,27 +203,27 @@ func getSubidLimits(file string) ([]uint64, error) {
 	}
 	defer f.Close()
 
+	tokens := map[string]uint{
+		"SUB_UID_MIN": 0,
+		"SUB_UID_MAX": 1,
+		"SUB_GID_MIN": 2,
+		"SUB_GID_MAX": 3,
+	}
+
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := scanner.Text()
-		if strings.Contains(line, "SUB_UID_MIN") {
-			valStr := strings.Fields(line)[1]
-			limits[0], err = strconv.ParseUint(valStr, 10, 64)
-		}
-		if strings.Contains(line, "SUB_UID_MAX") {
-			valStr := strings.Fields(line)[1]
-			limits[1], err = strconv.ParseUint(valStr, 10, 64)
-		}
-		if strings.Contains(line, "SUB_GID_MIN") {
-			valStr := strings.Fields(line)[1]
-			limits[2], err = strconv.ParseUint(valStr, 10, 64)
-		}
-		if strings.Contains(line, "SUB_GID_MAX") {
-			valStr := strings.Fields(line)[1]
-			limits[3], err = strconv.ParseUint(valStr, 10, 64)
-		}
-		if err != nil {
-			return limits, fmt.Errorf("failed to parse line %s: %s", line, err)
+		for token, pos := range tokens {
+			if strings.Contains(line, token) {
+				valStr := strings.Fields(line)
+				if len(valStr) < 2 {
+					return limits, fmt.Errorf("failed to parse file %s: line %s: expected two fields, found %d field(s)", file, line, len(valStr))
+				}
+				limits[pos], err = strconv.ParseUint(valStr[1], 10, 64)
+				if err != nil {
+					return limits, fmt.Errorf("failed to parse line %s: %s", line, err)
+				}
+			}
 		}
 	}
 

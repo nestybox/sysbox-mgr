@@ -325,13 +325,13 @@ func TestGetSubidLimits(t *testing.T) {
 	// fake login.defs data
 	fileData := `# some comments
 some data
-SUB_UID_MIN 100000
+SUB_UID_MIN    100000
 some data
-SUB_UID_MAX 600100000
+SUB_UID_MAX\t 600100000
 some data
 SUB_GID_MIN 100000
 some data
-SUB_GID_MAX 2147483648
+SUB_GID_MAX\t\t 2147483648
 # some more comments`
 
 	want := []uint64{100000, 600100000, 100000, 2147483648}
@@ -348,7 +348,6 @@ some data
 	if err := testGetSubidLimitsHelper(fileData, want); err != nil {
 		t.Errorf(err.Error())
 	}
-
 }
 
 func TestGetLibModMounts(t *testing.T) {
