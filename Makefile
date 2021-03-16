@@ -18,9 +18,11 @@ LIBDOCKER_SRC := $(shell find $(LIBDOCKER_DIR) 2>&1 | grep -E '.*\.(go)')
 
 COMMIT_NO := $(shell git rev-parse HEAD 2> /dev/null || true)
 COMMIT ?= $(if $(shell git status --porcelain --untracked-files=no),"$(COMMIT_NO)-dirty","$(COMMIT_NO)")
+BUILT_AT := $(shell date)
+BUILT_BY := $(shell git config user.name)
 
-LDFLAGS := '-X main.version=${VERSION} -X main.commitId=${COMMIT} \
-			-X "main.builtAt=${BUILT_AT}" -X main.builtBy=${BUILT_BY}'
+LDFLAGS := '-X main.version=${VERSION} -X main.commitId=$(COMMIT) \
+		-X "main.builtAt=$(BUILT_AT)" -X "main.builtBy=$(BUILT_BY)"'
 
 sysbox-mgr: $(SYSMGR_SRC) $(SYSMGR_GRPC_SRC) $(LIBDOCKER_SRC)
 	$(GO) build -ldflags ${LDFLAGS} -o sysbox-mgr
