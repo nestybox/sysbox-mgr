@@ -40,8 +40,9 @@ Sysbox components (e.g., sysbox-runc).`
 
 // Globals to be populated at build time during Makefile processing.
 var (
+	platform string // Sysbox Platform: CE or EE
 	version  string // extracted from VERSION file
-	commitId string // latest git commit-id of sysbox superproject
+	commitId string // latest sysbox-mgr's git commit-id
 	builtAt  string // build time
 	builtBy  string // build owner
 )
@@ -98,11 +99,12 @@ func main() {
 	// show-version specialization.
 	cli.VersionPrinter = func(c *cli.Context) {
 		fmt.Printf("sysbox-mgr\n"+
+			"\tplatform: \t%s\n"+
 			"\tversion: \t%s\n"+
 			"\tcommit: \t%s\n"+
 			"\tbuilt at: \t%s\n"+
 			"\tbuilt by: \t%s\n",
-			c.App.Version, commitId, builtAt, builtBy)
+			platform, c.App.Version, commitId, builtAt, builtBy)
 	}
 
 	app.Before = func(ctx *cli.Context) error {
