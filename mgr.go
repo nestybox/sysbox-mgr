@@ -30,7 +30,6 @@ import (
 	"github.com/nestybox/sysbox-libs/dockerUtils"
 	"github.com/nestybox/sysbox-libs/formatter"
 	libutils "github.com/nestybox/sysbox-libs/utils"
-	utils "github.com/nestybox/sysbox-libs/utils"
 	"github.com/nestybox/sysbox-mgr/idShiftUtils"
 	intf "github.com/nestybox/sysbox-mgr/intf"
 	"github.com/nestybox/sysbox-mgr/shiftfsMgr"
@@ -81,13 +80,25 @@ type containerInfo struct {
 	mntPrepRev    []mntPrepRevInfo
 	reqMntInfos   []mountInfo
 	containerMnts []specs.Mount
-	uidInfo       uidInfo
-	shiftfsMarks  []configs.ShiftfsMount
-	autoRemove    bool
+
+	// TODO: this looks like it overlaps with uidMappings ... fix it.
+
+	uidInfo      uidInfo
+	shiftfsMarks []configs.ShiftfsMount
+	autoRemove   bool
+	userns       string
+	netns        string
+	netnsInode   uint64
+	uidMappings  []specs.LinuxIDMapping
+	gidMappings  []specs.LinuxIDMapping
+}
+
+type mgrConfig struct {
+	aliasDns bool
 }
 
 type SysboxMgr struct {
-	mgrCfg            *ipcLib.MgrConfig
+	mgrCfg            mgrConfig
 	grpcServer        *grpc.ServerStub
 	subidAlloc        intf.SubidAlloc
 	dockerVolMgr      intf.VolMgr
@@ -98,13 +109,18 @@ type SysboxMgr struct {
 	hostKernelHdrPath string
 	linuxHeaderMounts []specs.Mount
 	libModMounts      []specs.Mount
-	contTable         map[string]containerInfo // cont id -> cont info
-	ctLock            sync.Mutex
-	rootfsTable       map[string]string // cont rootfs -> cont id; used by rootfs monitor
-	rtLock            sync.Mutex
-	rootfsMonStop     chan int
-	rootfsWatcher     *fsnotify.Watcher
-	exclMntTable      *exclusiveMntTable
+	// Tracks containers known to sysbox (cont id -> cont info)
+	contTable map[string]containerInfo
+	ctLock    sync.Mutex
+	// Tracks container rootfs (cont rootfs -> cont id); used by the rootfs monitor
+	rootfsTable   map[string]string
+	rtLock        sync.Mutex
+	rootfsMonStop chan int
+	rootfsWatcher *fsnotify.Watcher
+	exclMntTable  *exclusiveMntTable
+	// tracks containers using the same netns (netns inode -> list of container ids)
+	netnsTable map[uint64][]string
+	ntLock     sync.Mutex
 }
 
 // newSysboxMgr creates an instance of the sysbox manager
@@ -172,11 +188,11 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		return nil, fmt.Errorf("failed to compute kernel-module mounts: %v", err)
 	}
 
-	mgrCfg := &ipcLib.MgrConfig{
-		AliasDns: ctx.GlobalBoolT("alias-dns"),
+	mgrCfg := mgrConfig{
+		aliasDns: ctx.GlobalBoolT("alias-dns"),
 	}
 
-	if mgrCfg.AliasDns == true {
+	if mgrCfg.aliasDns == true {
 		logrus.Infof("Sys container DNS aliasing enabled.")
 	} else {
 		logrus.Infof("Sys container DNS aliasing disabled.")
@@ -196,11 +212,13 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		contTable:         make(map[string]containerInfo),
 		rootfsTable:       make(map[string]string),
 		rootfsMonStop:     make(chan int),
+		netnsTable:        make(map[uint64][]string),
 		exclMntTable:      newExclusiveMntTable(),
 	}
 
 	cb := &grpc.ServerCallbacks{
 		Register:       mgr.register,
+		Update:         mgr.update,
 		Unregister:     mgr.unregister,
 		SubidAlloc:     mgr.allocSubid,
 		ReqMounts:      mgr.reqMounts,
@@ -270,10 +288,17 @@ func (mgr *SysboxMgr) Stop() error {
 }
 
 // Registers a container with sysbox-mgr
-func (mgr *SysboxMgr) register(id string) (*ipcLib.MgrConfig, error) {
+func (mgr *SysboxMgr) register(regInfo *ipcLib.RegistrationInfo) (*ipcLib.ContainerConfig, error) {
+
+	id := regInfo.Id
+	userns := regInfo.Userns
+	netns := regInfo.Netns
+	uidMappings := regInfo.UidMappings
+	gidMappings := regInfo.GidMappings
 
 	mgr.ctLock.Lock()
 	info, found := mgr.contTable[id]
+
 	if !found {
 		// new container
 		info = containerInfo{
@@ -281,36 +306,133 @@ func (mgr *SysboxMgr) register(id string) (*ipcLib.MgrConfig, error) {
 			mntPrepRev:   []mntPrepRevInfo{},
 			shiftfsMarks: []configs.ShiftfsMount{},
 		}
-		mgr.contTable[id] = info
-		mgr.ctLock.Unlock()
-
-		logrus.Infof("registered new container %s", formatter.ContainerID{id})
-		return mgr.mgrCfg, nil
+	} else {
+		// re-started container
+		if info.state != stopped {
+			mgr.ctLock.Unlock()
+			return nil, fmt.Errorf("redundant container registration for container %s",
+				formatter.ContainerID{id})
+		}
+		info.state = restarted
 	}
 
-	// re-started container
-	if info.state != stopped {
-		mgr.ctLock.Unlock()
-		return nil, fmt.Errorf("redundant container registration for container %s",
-			formatter.ContainerID{id})
+	info.netns = netns
+	info.userns = userns
+	info.uidMappings = uidMappings
+	info.gidMappings = gidMappings
+
+	// Track the container's net-ns, so we can later determine if multiple sys
+	// containers are sharing a net-ns (which implies they share the user-ns too).
+	var sameNetns []string
+
+	if netns != "" {
+		netnsInode, err := getInode(netns)
+		if err != nil {
+			mgr.ctLock.Unlock()
+			return nil, fmt.Errorf("unable to get inode for netns %s: %s", netns, err)
+		}
+
+		sameNetns, err = mgr.trackNetns(id, netnsInode)
+		if err != nil {
+			mgr.ctLock.Unlock()
+			return nil, fmt.Errorf("failed to track netns for container %s: %s",
+				formatter.ContainerID{id}, err)
+		}
+
+		info.netnsInode = netnsInode
 	}
 
-	info.state = restarted
+	// If this container's netns is shared with other containers, it's userns
+	// (and associated ID mappings) must be shared too.
+	if len(sameNetns) > 1 && userns == "" {
+		otherContSameNetnsInfo, ok := mgr.contTable[sameNetns[0]]
+		if !ok {
+			mgr.ctLock.Unlock()
+			return nil,
+				fmt.Errorf("container %s shares net-ns with other containers, but unable to find info for those.",
+					formatter.ContainerID{id})
+		}
+		info.userns = otherContSameNetnsInfo.userns
+		info.uidMappings = otherContSameNetnsInfo.uidMappings
+		info.gidMappings = otherContSameNetnsInfo.gidMappings
+	}
+
 	mgr.contTable[id] = info
 	mgr.ctLock.Unlock()
 
-	// remove the rootfs watch
-	if info.rootfs != "" {
-		rootfs := sanitizeRootfs(id, info.rootfs)
-		mgr.rootfsWatcher.Remove(rootfs)
-		mgr.rtLock.Lock()
-		delete(mgr.rootfsTable, rootfs)
-		mgr.rtLock.Unlock()
-		logrus.Debugf("removed fs watch on %s", rootfs)
+	if info.state == restarted {
+		// remove the container's rootfs watch
+		if info.rootfs != "" {
+			rootfs := sanitizeRootfs(id, info.rootfs)
+			mgr.rootfsWatcher.Remove(rootfs)
+			mgr.rtLock.Lock()
+			delete(mgr.rootfsTable, rootfs)
+			mgr.rtLock.Unlock()
+			logrus.Debugf("removed fs watch on %s", rootfs)
+		}
+
+		logrus.Infof("registered container %s", formatter.ContainerID{id})
+	} else {
+		logrus.Infof("registered new container %s", formatter.ContainerID{id})
 	}
 
-	logrus.Infof("registered container %s", formatter.ContainerID{id})
-	return mgr.mgrCfg, nil
+	containerCfg := &ipcLib.ContainerConfig{
+		AliasDns:    mgr.mgrCfg.aliasDns,
+		Userns:      info.userns,
+		UidMappings: info.uidMappings,
+		GidMappings: info.gidMappings,
+	}
+
+	return containerCfg, nil
+}
+
+// Updates info for a given container
+func (mgr *SysboxMgr) update(updateInfo *ipcLib.UpdateInfo) error {
+
+	id := updateInfo.Id
+	userns := updateInfo.Userns
+	netns := updateInfo.Netns
+	uidMappings := updateInfo.UidMappings
+	gidMappings := updateInfo.GidMappings
+
+	mgr.ctLock.Lock()
+	defer mgr.ctLock.Unlock()
+
+	info, found := mgr.contTable[id]
+	if !found {
+		return fmt.Errorf("can't update container %s; not found in container table",
+			formatter.ContainerID{id})
+	}
+
+	if info.netns == "" && netns != "" {
+		netnsInode, err := getInode(netns)
+		if err != nil {
+			return fmt.Errorf("can't update container %s: unable to get inode for netns %s: %s",
+				formatter.ContainerID{id}, netns, err)
+		}
+
+		if _, err := mgr.trackNetns(id, netnsInode); err != nil {
+			return fmt.Errorf("can't update container %s: failed to track netns: %s",
+				formatter.ContainerID{id}, err)
+		}
+		info.netns = netns
+		info.netnsInode = netnsInode
+	}
+
+	if info.userns == "" && userns != "" {
+		info.userns = userns
+	}
+
+	if len(info.uidMappings) == 0 && len(uidMappings) > 0 {
+		info.uidMappings = uidMappings
+	}
+
+	if len(info.gidMappings) == 0 && len(gidMappings) > 0 {
+		info.gidMappings = gidMappings
+	}
+
+	mgr.contTable[id] = info
+	return nil
 }
 
 // Unregisters a container with sysbox-mgr
@@ -362,6 +484,18 @@ func (mgr *SysboxMgr) unregister(id string) error {
 	}
 	info.mntPrepRev = []mntPrepRevInfo{}
 
+	// update the netns sharing table
+	if err := mgr.untrackNetns(id, info.netnsInode); err != nil {
+		logrus.Warnf("did not find netns for container %s in netns sharing table.", id)
+	}
+
+	// ns tracking info is reset for new or restarted containers
+	info.userns = ""
+	info.netns = ""
+	info.netnsInode = 0
+	info.uidMappings = nil
+	info.gidMappings = nil
+
 	mgr.ctLock.Lock()
 	mgr.contTable[id] = info
 	mgr.ctLock.Unlock()
@@ -374,7 +508,7 @@ func (mgr *SysboxMgr) unregister(id string) error {
 		}
 	}
 
-	// setup rootfs watch (allows us to get notified when the container's rootfs is removed)
+	// setup a rootfs watch (allows us to get notified when the container's rootfs is removed)
 	if info.rootfs != "" {
 		rootfs := sanitizeRootfs(id, info.rootfs)
 
@@ -901,11 +1035,41 @@ func (mgr *SysboxMgr) pause(id string) error {
 	return nil
 }
 
-func preFlightCheck() error {
-	for _, prog := range progDeps {
-		if !utils.CmdExists(prog) {
-			return fmt.Errorf("%s is not installed on host.", prog)
-		}
+// trackNetns tracks the network ns for the given container id
+func (mgr *SysboxMgr) trackNetns(id string, netnsInode uint64) ([]string, error) {
+
+	mgr.ntLock.Lock()
+	defer mgr.ntLock.Unlock()
+
+	sameNetns, ok := mgr.netnsTable[netnsInode]
+	if ok {
+		sameNetns = append(sameNetns, id)
+	} else {
+		sameNetns = []string{id}
 	}
+
+	mgr.netnsTable[netnsInode] = sameNetns
+
+	return sameNetns, nil
+}
+
+// untrackNetns removes netns tracking for the given container id
+func (mgr *SysboxMgr) untrackNetns(id string, netnsInode uint64) error {
+	mgr.ntLock.Lock()
+	defer mgr.ntLock.Unlock()
+
+	sameNetns, ok := mgr.netnsTable[netnsInode]
+	if !ok {
+		return fmt.Errorf("did nof find inode %s in netnsTable", netnsInode)
+	}
+
+	sameNetns = libutils.StringSliceRemove(sameNetns, []string{id})
+
+	if len(sameNetns) > 0 {
+		mgr.netnsTable[netnsInode] = sameNetns
+	} else {
+		delete(mgr.netnsTable, netnsInode)
+	}
+
 	return nil
 }

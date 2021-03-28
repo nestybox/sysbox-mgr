@@ -749,3 +749,22 @@ func mntSrcUidShiftNeeded(mntSrc string, uid, gid uint32) (bool, uint32, uint32,
 
 	return needChown, mntSrcUid, mntSrcGid, nil
 }
+
+func preFlightCheck() error {
+	for _, prog := range progDeps {
+		if !libutils.CmdExists(prog) {
+			return fmt.Errorf("%s is not installed on host.", prog)
+		}
+	}
+	return nil
+}
+
+func getInode(file string) (uint64, error) {
+	var st unix.Stat_t
+
+	if err := unix.Stat(file, &st); err != nil {
+		return 0, fmt.Errorf("unable to stat %s: %s", file, err)
+	}
+
+	return st.Ino, nil
+}
