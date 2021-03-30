@@ -54,12 +54,6 @@ const (
 	restarted
 )
 
-type uidInfo struct {
-	uid  uint32
-	gid  uint32
-	size uint64
-}
-
 type mntPrepRevInfo struct {
 	path       string
 	uidShifted bool
@@ -75,22 +69,19 @@ type mountInfo struct {
 }
 
 type containerInfo struct {
-	state         containerState
-	rootfs        string
-	mntPrepRev    []mntPrepRevInfo
-	reqMntInfos   []mountInfo
-	containerMnts []specs.Mount
-
-	// TODO: this looks like it overlaps with uidMappings ... fix it.
-
-	uidInfo      uidInfo
-	shiftfsMarks []configs.ShiftfsMount
-	autoRemove   bool
-	userns       string
-	netns        string
-	netnsInode   uint64
-	uidMappings  []specs.LinuxIDMapping
-	gidMappings  []specs.LinuxIDMapping
+	state          containerState
+	rootfs         string
+	mntPrepRev     []mntPrepRevInfo
+	reqMntInfos    []mountInfo
+	containerMnts  []specs.Mount
+	shiftfsMarks   []configs.ShiftfsMount
+	autoRemove     bool
+	userns         string
+	netns          string
+	netnsInode     uint64
+	uidMappings    []specs.LinuxIDMapping
+	gidMappings    []specs.LinuxIDMapping
+	subidAllocated bool
 }
 
 type mgrConfig struct {
@@ -318,8 +309,11 @@ func (mgr *SysboxMgr) register(regInfo *ipcLib.RegistrationInfo) (*ipcLib.Contai
 
 	info.netns = netns
 	info.userns = userns
-	info.uidMappings = uidMappings
-	info.gidMappings = gidMappings
+
+	if !info.subidAllocated {
+		info.uidMappings = uidMappings
+		info.gidMappings = gidMappings
+	}
 
 	// Track the container's net-ns, so we can later determine if multiple sys
 	// containers are sharing a net-ns (which implies they share the user-ns too).
@@ -493,8 +487,13 @@ func (mgr *SysboxMgr) unregister(id string) error {
 	info.userns = ""
 	info.netns = ""
 	info.netnsInode = 0
-	info.uidMappings = nil
-	info.gidMappings = nil
+
+	// uid mappings for the container are also reset, except if they were
+	// allocated by sysbox-mgr (those are kept across container restarts).
+	if !info.subidAllocated {
+		info.uidMappings = nil
+		info.gidMappings = nil
+	}
 
 	mgr.ctLock.Lock()
 	mgr.contTable[id] = info
@@ -631,7 +630,7 @@ func (mgr *SysboxMgr) removeCont(id string) {
 		}
 	}
 
-	if info.uidInfo.size != 0 {
+	if info.subidAllocated {
 		if err := mgr.subidAlloc.Free(id); err != nil {
 			logrus.Errorf("rootfsMon: failed to free uid(gid) for container %s: %s",
 				formatter.ContainerID{id}, err)
@@ -867,25 +866,39 @@ func (mgr *SysboxMgr) allocSubid(id string, size uint64) (uint32, uint32, error)
 			formatter.ContainerID{id})
 	}
 
-	// if this is a newly started container, allocate the uid/gid range
-	// (started or stopped containers keep their uid/gid range until removed)
-	if info.uidInfo.size == 0 {
+	// If we are being asked to allocate ID mappings for a new container, do it.
+	// For restarted containers, we keep the mappings we had prior to the
+	// container being stopped.
+	if !info.subidAllocated {
+
 		uid, gid, err := mgr.subidAlloc.Alloc(id, size)
 		if err != nil {
 			return uid, gid, fmt.Errorf("failed to allocate uid(gid) for %s: %s",
 				formatter.ContainerID{id}, err)
 		}
-		info.uidInfo = uidInfo{
-			uid:  uid,
-			gid:  gid,
-			size: size,
+
+		uidMapping := specs.LinuxIDMapping{
+			ContainerID: 0,
+			HostID:      uid,
+			Size:        uint32(size),
 		}
+
+		gidMapping := specs.LinuxIDMapping{
+			ContainerID: 0,
+			HostID:      gid,
+			Size:        uint32(size),
+		}
+
+		info.uidMappings = append(info.uidMappings, uidMapping)
+		info.gidMappings = append(info.gidMappings, gidMapping)
+		info.subidAllocated = true
+
 		mgr.ctLock.Lock()
 		mgr.contTable[id] = info
 		mgr.ctLock.Unlock()
 	}
 
-	return info.uidInfo.uid, info.uidInfo.gid, nil
+	return info.uidMappings[0].HostID, info.gidMappings[0].HostID, nil
 }
 
 func (mgr *SysboxMgr) reqShiftfsMark(id string, rootfs string, mounts []configs.ShiftfsMount) error {
@@ -1060,7 +1073,7 @@ func (mgr *SysboxMgr) untrackNetns(id string, netnsInode uint64) error {
 
 	sameNetns, ok := mgr.netnsTable[netnsInode]
 	if !ok {
-		return fmt.Errorf("did nof find inode %s in netnsTable", netnsInode)
+		return fmt.Errorf("did not find inode %d in netnsTable", netnsInode)
 	}
 
 	sameNetns = libutils.StringSliceRemove(sameNetns, []string{id})
