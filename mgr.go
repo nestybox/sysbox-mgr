@@ -901,7 +901,7 @@ func (mgr *SysboxMgr) allocSubid(id string, size uint64) (uint32, uint32, error)
 	return info.uidMappings[0].HostID, info.gidMappings[0].HostID, nil
 }
 
-func (mgr *SysboxMgr) reqShiftfsMark(id string, rootfs string, mounts []configs.ShiftfsMount) error {
+func (mgr *SysboxMgr) reqShiftfsMark(id string, mounts []configs.ShiftfsMount) error {
 
 	// get container info
 	mgr.ctLock.Lock()
@@ -913,17 +913,11 @@ func (mgr *SysboxMgr) reqShiftfsMark(id string, rootfs string, mounts []configs.
 	}
 
 	if len(info.shiftfsMarks) == 0 {
-		rootfsMnt := configs.ShiftfsMount{
-			Source:   rootfs,
-			Readonly: false,
-		}
-		allMounts := append(mounts, rootfsMnt)
-
-		if err := mgr.shiftfsMgr.Mark(id, allMounts); err != nil {
+		if err := mgr.shiftfsMgr.Mark(id, mounts); err != nil {
 			return err
 		}
 
-		info.shiftfsMarks = allMounts
+		info.shiftfsMarks = mounts
 
 		mgr.ctLock.Lock()
 		mgr.contTable[id] = info
