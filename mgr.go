@@ -770,7 +770,7 @@ func (mgr *SysboxMgr) autoRemoveCheck(id string) {
 		formatter.ContainerID{id}, info.autoRemove)
 }
 
-func (mgr *SysboxMgr) prepMounts(id string, uid, gid uint32, shiftUids bool, prepList []ipcLib.MountPrepInfo) (err error) {
+func (mgr *SysboxMgr) prepMounts(id string, uid, gid uint32, prepList []ipcLib.MountPrepInfo) (err error) {
 
 	logrus.Debugf("preparing mounts for %s: %+v",
 		formatter.ContainerID{id}, prepList)
@@ -794,7 +794,6 @@ func (mgr *SysboxMgr) prepMounts(id string, uid, gid uint32, shiftUids bool, pre
 		// given time; it's OK if it's mounted in multiple containers, as long as only one
 		// container uses it. If the mount is exclusive and another sys container has the
 		// same mount source, exclMntTable.Add() will generate a warning.
-
 		if prepInfo.Exclusive {
 			mgr.exclMntTable.add(src, id)
 			defer func() {
@@ -804,33 +803,28 @@ func (mgr *SysboxMgr) prepMounts(id string, uid, gid uint32, shiftUids bool, pre
 			}()
 		}
 
-		// If uid shifting is enabled, check if the mount source needs uid
-		// shifting. If so, perform the shift via chown.
+		// Check if the mount source has ownership matching that of the
+		// container's root user. If not, modify the ownership of the mount source
+		// accordingly.
+		needUidShift, origUid, origGid, err = mntSrcUidShiftNeeded(src, uid, gid)
+		if err != nil {
+			return fmt.Errorf("failed to check mount source ownership: %s", err)
+		}
 
-		needUidShift := false
+		if needUidShift {
+			logrus.Infof("shifting uids at %s for %s", src, formatter.ContainerID{id})
 
-		if shiftUids {
+			// uid is guaranteed to be higher than origUid (we checked in
+			// mntSrcUidShiftNeeded())
 
-			needUidShift, origUid, origGid, err = mntSrcUidShiftNeeded(src, uid, gid)
-			if err != nil {
-				return fmt.Errorf("failed to check mount source ownership: %s", err)
+			uidOffset := uid - origUid
+			gidOffset := gid - origGid
+
+			if err = idShiftUtils.ShiftIdsWithChown(src, uidOffset, gidOffset, idShiftUtils.OffsetAdd); err != nil {
+				return fmt.Errorf("failed to shift uids via chown for mount source at %s: %s", src, err)
 			}
 
-			if needUidShift {
-				logrus.Infof("shifting uids at %s for %s", src, formatter.ContainerID{id})
-
-				// uid is guaranteed to be higher than origUid (we checked in
-				// mntSrcUidShiftNeeded())
-
-				uidOffset := uid - origUid
-				gidOffset := gid - origGid
-
-				if err = idShiftUtils.ShiftIdsWithChown(src, uidOffset, gidOffset, idShiftUtils.OffsetAdd); err != nil {
-					return fmt.Errorf("failed to shift uids via chown for mount source at %s: %s", src, err)
-				}
-
-				logrus.Infof("done shifting uids at %s for %s", src, formatter.ContainerID{id})
-			}
+			logrus.Infof("done shifting uids at %s for %s", src, formatter.ContainerID{id})
 		}
 
 		// store the prep info so we can revert it when the container is stopped
