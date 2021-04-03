@@ -207,7 +207,7 @@ func testConfigSubidRangeHelper(subidFilePre, subidFilePost string, size, min, m
 	}
 	defer os.RemoveAll(f.Name())
 
-	if err := ioutil.WriteFile(f.Name(), []byte(subidFilePre), 644); err != nil {
+	if err := ioutil.WriteFile(f.Name(), []byte(subidFilePre), 0644); err != nil {
 		return fmt.Errorf("failed to write file %s: %v", f.Name(), err)
 	}
 
@@ -294,7 +294,7 @@ func testGetSubidLimitsHelper(fileData string, want []uint64) error {
 		return fmt.Errorf("failed to create temp file: %v", err)
 	}
 
-	if err := ioutil.WriteFile(f.Name(), []byte(fileData), 644); err != nil {
+	if err := ioutil.WriteFile(f.Name(), []byte(fileData), 0644); err != nil {
 		return fmt.Errorf("failed to write file %s: %v", f.Name(), err)
 	}
 
