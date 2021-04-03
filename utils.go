@@ -132,14 +132,19 @@ func writeSubidFile(path string, subID []user.SubID) error {
 		buf.WriteString(l)
 	}
 
-	return ioutil.WriteFile(path, []byte(buf.String()), 644)
+	return ioutil.WriteFile(path, []byte(buf.String()), 0644)
 }
 
 func configSubidRange(path string, size, min, max uint64) error {
 
 	subID, err := user.ParseSubIDFile(path)
 	if err != nil {
-		return fmt.Errorf("error parsing file %s: %s", path, err)
+		if os.IsNotExist(err) {
+			// We will create an new file with only the "sysbox" entry
+			subID = []user.SubID{}
+		} else {
+			return fmt.Errorf("error parsing file %s: %s", path, err)
+		}
 	}
 
 	// Check if there are any subids configured for user "sysbox"
