@@ -488,9 +488,11 @@ func (mgr *SysboxMgr) unregister(id string) error {
 	info.mntPrepRev = []mntPrepRevInfo{}
 
 	// update the netns sharing table
-	if err := mgr.untrackNetns(id, info.netnsInode); err != nil {
-		logrus.Warnf("did not find netns for container %s in netns sharing table.", id)
-	}
+	//
+	// note: we don't do error checking because this can fail if the netns is not
+	// yet tracked for the container (e.g., if a container is registered and
+	// then unregistered because the container failed to start for some reason).
+	mgr.untrackNetns(id, info.netnsInode)
 
 	// ns tracking info is reset for new or restarted containers
 	info.userns = ""
