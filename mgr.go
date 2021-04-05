@@ -786,6 +786,9 @@ func (mgr *SysboxMgr) reqFsState(id, rootfs string) ([]configs.FsEntry, error) {
 		return nil, fmt.Errorf("container %s is not registered", formatter.ContainerID{id})
 	}
 
+	if len(mgr.linuxHeaderMounts) == 0 {
+		return nil, nil
+	}
 
 	// In certain scenarios a soft-link will be required to properly resolve the
 	// dependencies present in "/usr/src" and "/lib/modules/kernel" paths.
