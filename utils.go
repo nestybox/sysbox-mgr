@@ -622,13 +622,28 @@ func longestCommonPath(paths []string) string {
 	}
 
 	// find the first 'i' common characters between the shortest and longest paths
+	lcp := shortest
 	for i := 0; i < len(shortest) && i < len(longest); i++ {
 		if shortest[i] != longest[i] {
-			return shortest[:i]
+			lcp = shortest[:i]
+			break
 		}
 	}
 
-	return shortest
+	// if the longest common prefix does not end on a path separator, we may
+	// have left a path component truncated, and we need to strip it off
+	// (the longest common path of "/root/aba" and "/root/aca" is "/root/" and not "/root/a")
+	if !strings.HasSuffix(lcp, "/") {
+		// in the case we have something like "/root/a" and "/root/a/b", no need to strip "a" off
+		if (len(lcp) < len(shortest) && shortest[len(lcp)] != '/') ||
+		    (len(lcp) < len(longest) && longest[len(lcp)] != '/') {
+			if idx := strings.LastIndex(lcp, "/"); idx != -1 {
+				lcp = lcp[:idx]
+			}
+		}
+	}
+
+	return lcp
 }
 
 // returns a list of all symbolic links under the given directory
