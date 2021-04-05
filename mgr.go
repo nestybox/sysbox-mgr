@@ -21,6 +21,7 @@ import (
 	"os"
 	"sync"
 	"time"
+	"path"
 
 	systemd "github.com/coreos/go-systemd/daemon"
 	"github.com/fsnotify/fsnotify"
@@ -785,25 +786,19 @@ func (mgr *SysboxMgr) reqFsState(id, rootfs string) ([]configs.FsEntry, error) {
 		return nil, fmt.Errorf("container %s is not registered", formatter.ContainerID{id})
 	}
 
-	var fsEntries []configs.FsEntry
 
 	// In certain scenarios a soft-link will be required to properly resolve the
 	// dependencies present in "/usr/src" and "/lib/modules/kernel" paths.
-	entry, err := mgr.getKernelHeaderSoftlink(rootfs)
+	fsEntries, err := mgr.getKernelHeaderSoftlink(rootfs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to obtain kernel-headers softlink state for container %s: %s",
 			formatter.ContainerID{id}, err)
 	}
-	if entry == nil {
-		return nil, nil
-	}
-
-	fsEntries = append(fsEntries, *entry)
 
 	return fsEntries, nil
 }
 
-func (mgr *SysboxMgr) getKernelHeaderSoftlink(rootfs string) (*configs.FsEntry, error) {
+func (mgr *SysboxMgr) getKernelHeaderSoftlink(rootfs string) ([]configs.FsEntry, error) {
 
 	// Obtain linux distro within the passed rootfs path. Notice that we are
 	// not returning any received error to ensure we complete container's
@@ -831,6 +826,18 @@ func (mgr *SysboxMgr) getKernelHeaderSoftlink(rootfs string) (*configs.FsEntry, 
 		return nil, nil
 	}
 
+	var fsEntries []configs.FsEntry
+
+	// In certain distros, such as 'alpine', the kernel header path (typically
+	// "/usr/src") may not exist, so create an associated fsEntry to ensure
+	// that the kernel softlink addition (below) can be properly carried out.
+	fsEntryParents := configs.NewFsEntry(
+		path.Dir(cntrKernelPath),
+		"",
+		0755,
+		configs.DirFsKind,
+	)
+
 	// Create kernel-header softlink.
 	fsEntry := configs.NewFsEntry(
 		cntrKernelPath,
@@ -839,7 +846,9 @@ func (mgr *SysboxMgr) getKernelHeaderSoftlink(rootfs string) (*configs.FsEntry, 
 		configs.SoftlinkFsKind,
 	)
 
-	return fsEntry, nil
+	fsEntries = append(fsEntries, *fsEntryParents, *fsEntry)
+
+	return fsEntries, nil
 }
 
 func (mgr *SysboxMgr) pause(id string) error {
