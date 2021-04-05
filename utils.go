@@ -475,6 +475,11 @@ func getLinuxHeaderMounts(kernelHdrPath string) ([]specs.Mount, error) {
 
 	var path = kernelHdrPath
 
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		logrus.Warnf("No kernel-headers found in host filesystem at %s. No headers will be mounted inside any of the containers.", kernelHdrPath)
+		return []specs.Mount{}, nil
+	}
+
 	// Create a mount-spec making use of the kernel-hdr-path in the host. This way,
 	// sys containers will have kernel-headers exposed in the same path utilized by
 	// the host. In addition to this, a softlink will be added to container's rootfs,
