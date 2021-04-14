@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -30,6 +29,7 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/karrick/godirwalk"
 	"github.com/nestybox/sysbox-libs/dockerUtils"
 	libutils "github.com/nestybox/sysbox-libs/utils"
 	utils "github.com/nestybox/sysbox-libs/utils"
@@ -429,25 +429,86 @@ func removeDirContents(path string) error {
 	return nil
 }
 
-func rChown(path string, uid, gid uint32) error {
+type offsetType int
 
-	// This operation can take a while, specially if the directory hierarchy under path is
-	// heavily populated. Thus, performance is important. Our experiments indicate that
-	// using the chown(1) command is faster than doing a directory walk + chown syscall
-	// with golang. With the golang approach, both filepath.Walk() and godirwalk.Walk()
-	// were slower than chown(1). The filepath.Walk() was twice as slow as chown(1), while
-	// godriwalk.Walk() was 15% slower than chown(1).
+const (
+	offsetAdd offsetType = iota
+	offsetSub
+)
 
-	owner := strconv.FormatUint(uint64(uid), 10)
-	group := strconv.FormatUint(uint64(gid), 10)
-	perm := fmt.Sprintf("%s:%s", owner, group)
+func shiftUidsWithChown(baseDir string, uidOffset, gidOffset uint32, offsetDir offsetType) error {
 
-	cmd := exec.Command("chown", "-R", perm, path)
-	err := cmd.Run()
-	if err != nil {
-		logrus.Errorf("failed to change ownership of %s: %s", path, err)
-	}
-	return nil
+	hardLinks := []uint64{}
+
+	err := godirwalk.Walk(baseDir, &godirwalk.Options{
+		Callback: func(path string, de *godirwalk.Dirent) error {
+			var targetUid, targetGid uint32
+
+			// When doing the chown, we don't follow symlinks as we want to change
+			// the ownership of the symlinks themselves. We will chown the
+			// symlink's target during the godirwalk (wunless the symlink is
+			// dangling in which case there is nothing to be done).
+
+			fi, err := os.Lstat(path)
+			if err != nil {
+				return err
+			}
+
+			st, ok := fi.Sys().(*syscall.Stat_t)
+			if !ok {
+				return fmt.Errorf("failed to convert to syscall.Stat_t")
+			}
+
+			// If a file has multiple hardlinks, change its ownership once
+			if st.Nlink >= 2 {
+				for _, linkInode := range hardLinks {
+					if linkInode == st.Ino {
+						return nil
+					}
+				}
+
+				hardLinks = append(hardLinks, st.Ino)
+			}
+
+			if offsetDir == offsetAdd {
+				targetUid = st.Uid + uidOffset
+				targetGid = st.Gid + gidOffset
+			} else {
+				targetUid = st.Uid - uidOffset
+				targetGid = st.Gid - gidOffset
+			}
+
+			logrus.Debugf("chown %s from %d:%d to %d:%d", path, st.Uid, st.Gid, targetUid, targetGid)
+
+			err = unix.Lchown(path, int(targetUid), int(targetGid))
+			if err != nil {
+				return fmt.Errorf("chown %s to %d:%d failed: %s", path, targetUid, targetGid, err)
+			}
+
+			// TODO: deal with linux ACL ownership
+
+			return nil
+		},
+
+		ErrorCallback: func(path string, err error) godirwalk.ErrorAction {
+
+			fi, err := os.Lstat(path)
+			if err != nil {
+				return godirwalk.Halt
+			}
+
+			// Ignore errors due to chown on dangling symlinks (they often occur in container image layers)
+			if fi.Mode()&os.ModeSymlink == os.ModeSymlink {
+				return godirwalk.SkipNode
+			}
+
+			return godirwalk.Halt
+		},
+
+		Unsorted: true,
+	})
+
+	return err
 }
 
 // Sanitize the given container's rootfs.
@@ -641,7 +702,7 @@ func longestCommonPath(paths []string) string {
 	if !strings.HasSuffix(lcp, "/") {
 		// in the case we have something like "/root/a" and "/root/a/b", no need to strip "a" off
 		if (len(lcp) < len(shortest) && shortest[len(lcp)] != '/') ||
-		    (len(lcp) < len(longest) && longest[len(lcp)] != '/') {
+			(len(lcp) < len(longest) && longest[len(lcp)] != '/') {
 			if idx := strings.LastIndex(lcp, "/"); idx != -1 {
 				lcp = lcp[:idx]
 			}
@@ -697,18 +758,18 @@ func followSymlinksUnder(dir string) ([]string, error) {
 	return symlinks, nil
 }
 
-func checkMntSrcOwnership(mntSrc string, uid, gid uint32) (bool, uint32, uint32, error) {
+func mntSrcUidShiftNeeded(mntSrc string, uid, gid uint32) (bool, uint32, uint32, error) {
 
-	// The ownership check is done by checking the ownership of the mount source dir
-	// and the first level subdirs under it (if any), and comparing their
-	// owner:group versus that of the container's root user. This heuristic works
-	// well for the mounts for which we normally do preps (e.g., mounts over the
-	// container's /var/lib/docker, /var/lib/kubelet, etc.). We want to avoid an
-	// exhaustive check as it can be quite slow if the directory hierarchy underneath
-	// the mount source is extensive (e.g., if we are bind-mounting a fully populated
-	// docker cache on the host to the container's /var/lib/docker).
+	// The determination on whether to uid-shift the given mount source directory
+	// is done by checking the ownership of the dir and the first level subdirs
+	// under it (if any), and comparing their owner:group versus that of the
+	// container's root user. This heuristic works well for the mounts for which
+	// we normally do preps (e.g., mounts over the container's /var/lib/docker,
+	// /var/lib/kubelet, etc.). We want to avoid an exhaustive check as it can be
+	// quite slow if the directory hierarchy underneath the mount source is
+	// extensive (e.g., if we are bind-mounting a fully populated docker cache on
+	// the host to the container's /var/lib/docker).
 
-	var needChown bool
 	var mntSrcUid, mntSrcGid uint32
 
 	// mnt src ownership check
@@ -722,11 +783,28 @@ func checkMntSrcOwnership(mntSrc string, uid, gid uint32) (bool, uint32, uint32,
 	mntSrcUid = st.Uid
 	mntSrcGid = st.Gid
 
-	if mntSrcUid != uid || mntSrcGid != gid {
+	// We expect the host uid assigned to the container to be equal or higher
+	// than the uid of the dir being mounted into the container (i.e., the former
+	// is a container-range uid, the latter is a uid in the normal range of host
+	// uids).
+
+	if uid > mntSrcUid && gid > mntSrcGid {
 		return true, mntSrcUid, mntSrcGid, nil
 	}
 
-	// mnt src subdir ownership check
+	if uid < mntSrcUid && gid < mntSrcGid {
+
+		logrus.Infof("skipping uid shift on %s because its uid:gid (%d:%d) is "+
+			"> the container's assigned uid:gid (%d:%d)",
+			mntSrc, mntSrcUid, mntSrcGid, uid, gid)
+
+		return false, mntSrcUid, mntSrcGid, nil
+	}
+
+	// If the mount dir has same ownership as the container, check the subdirs
+	// before we make a determination on whether ownership shifting will be
+	// required.
+
 	dirFis := []os.FileInfo{}
 
 	dirFis, err = ioutil.ReadDir(mntSrc)
@@ -734,10 +812,18 @@ func checkMntSrcOwnership(mntSrc string, uid, gid uint32) (bool, uint32, uint32,
 		return false, 0, 0, err
 	}
 
+	needChown := true
 	for _, fi := range dirFis {
 		st, _ := fi.Sys().(*syscall.Stat_t)
-		if st.Uid != uid || st.Gid != gid {
-			needChown = true
+
+		if uid <= st.Uid && gid <= st.Gid {
+
+			logrus.Infof("skipping uid shift on %s because subdir %s has uid:gid (%d:%d) which is "+
+				">= the container's assigned uid:gid (%d:%d)",
+				mntSrc, fi.Name(), st.Uid, st.Gid, uid, gid)
+
+			needChown = false
+			break
 		}
 	}
 

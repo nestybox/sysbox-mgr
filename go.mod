@@ -7,6 +7,7 @@ require (
 	github.com/deckarep/golang-set v1.7.1
 	github.com/docker/docker v20.10.2+incompatible
 	github.com/fsnotify/fsnotify v1.4.7
+	github.com/karrick/godirwalk v1.16.1
 	github.com/mrunalp/fileutils v0.5.0
 	github.com/nestybox/sysbox-ipc v0.0.0-00010101000000-000000000000
 	github.com/nestybox/sysbox-libs/dockerUtils v0.0.0-00010101000000-000000000000

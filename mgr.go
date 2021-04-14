@@ -19,9 +19,9 @@ package main
 import (
 	"fmt"
 	"os"
+	"path"
 	"sync"
 	"time"
-	"path"
 
 	systemd "github.com/coreos/go-systemd/daemon"
 	"github.com/fsnotify/fsnotify"
@@ -61,10 +61,12 @@ type uidInfo struct {
 }
 
 type mntPrepRevInfo struct {
-	path    string
-	chown   bool
-	origUid uint32
-	origGid uint32
+	path       string
+	uidShifted bool
+	origUid    uint32
+	origGid    uint32
+	targetUid  uint32
+	targetGid  uint32
 }
 
 type mountInfo struct {
@@ -338,16 +340,20 @@ func (mgr *SysboxMgr) unregister(id string) error {
 
 	// revert mount prep actions
 	for _, revInfo := range info.mntPrepRev {
-		if revInfo.chown {
-			logrus.Infof("reverting chown on %s to %d:%d for %s", revInfo.path, revInfo.origUid,
-				revInfo.origGid, formatter.ContainerID{id})
+		if revInfo.uidShifted {
+			logrus.Infof("reverting uid-shift on %s for %s", revInfo.path, formatter.ContainerID{id})
 
-			if err = rChown(revInfo.path, revInfo.origUid, revInfo.origGid); err != nil {
-				logrus.Warnf("failed to revert ownership of mount source at %s: %s", revInfo.path, err)
+			// revInfo.origUid is guaranteed to be higher than revInfo.targetUid
+			// (we checked in prepMounts())
+
+			uidOffset := revInfo.targetUid - revInfo.origUid
+			gidOffset := revInfo.targetGid - revInfo.origGid
+
+			if err = shiftUidsWithChown(revInfo.path, uidOffset, gidOffset, offsetSub); err != nil {
+				logrus.Warnf("failed to revert uid-shift of mount source at %s: %s", revInfo.path, err)
 			}
 
-			logrus.Infof("done reverting chown on %s for %s", revInfo.path,
-				formatter.ContainerID{id})
+			logrus.Infof("done reverting uid-shift on %s for %s", revInfo.path, formatter.ContainerID{id})
 		}
 
 		mgr.exclMntTable.remove(revInfo.path, id)
@@ -665,38 +671,43 @@ func (mgr *SysboxMgr) prepMounts(id string, uid, gid uint32, shiftUids bool, pre
 			}()
 		}
 
-		// If uid shifting is enabled, check if the mount source has ownership matching that
-		// of the container's root user. If not, modify the ownership of the mount source
-		// accordingly.
+		// If uid shifting is enabled, check if the mount source needs uid
+		// shifting. If so, perform the shift via chown.
 
-		needChown := false
+		needUidShift := false
 
 		if shiftUids {
 
-			needChown, origUid, origGid, err = checkMntSrcOwnership(src, uid, gid)
+			needUidShift, origUid, origGid, err = mntSrcUidShiftNeeded(src, uid, gid)
 			if err != nil {
 				return fmt.Errorf("failed to check mount source ownership: %s", err)
 			}
 
-			if needChown {
-				logrus.Infof("chowning %s to %d:%d for %s",
-					src, uid, gid, formatter.ContainerID{id})
+			if needUidShift {
+				logrus.Infof("shifting uids at %s for %s", src, formatter.ContainerID{id})
 
-				if err = rChown(src, uid, gid); err != nil {
-					return fmt.Errorf("failed to chown mount source at %s: %s", src, err)
+				// uid is guaranteed to be higher than origUid (we checked in
+				// mntSrcUidShiftNeeded())
+
+				uidOffset := uid - origUid
+				gidOffset := gid - origGid
+
+				if err = shiftUidsWithChown(src, uidOffset, gidOffset, offsetAdd); err != nil {
+					return fmt.Errorf("failed to shift uids via chown for mount source at %s: %s", src, err)
 				}
 
-				logrus.Infof("done chowning %s for %s",
-					src, formatter.ContainerID{id})
+				logrus.Infof("done shifting uids at %s for %s", src, formatter.ContainerID{id})
 			}
 		}
 
 		// store the prep info so we can revert it when the container is stopped
 		revInfo := mntPrepRevInfo{
-			path:    src,
-			chown:   needChown,
-			origUid: origUid,
-			origGid: origGid,
+			path:       src,
+			uidShifted: needUidShift,
+			origUid:    origUid,
+			origGid:    origGid,
+			targetUid:  uid,
+			targetGid:  gid,
 		}
 
 		info.mntPrepRev = append(info.mntPrepRev, revInfo)
