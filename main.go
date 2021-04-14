@@ -62,8 +62,8 @@ func main() {
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
 			Name:  "log, l",
-			Value: "/dev/stdout",
-			Usage: "log file path",
+			Value: "",
+			Usage: "log file path or empty string for stderr output (default: \"\")",
 		},
 		cli.StringFlag{
 			Name:  "log-level",
@@ -114,6 +114,8 @@ func main() {
 				return err
 			}
 			logrus.SetOutput(f)
+		} else {
+			logrus.SetOutput(os.Stderr)
 		}
 
 		if logFormat := ctx.GlobalString("log-format"); logFormat == "json" {
