@@ -21,6 +21,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 
@@ -28,6 +29,12 @@ import (
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
 )
+
+type testFile struct {
+	name string
+	uid  uint32
+	gid  uint32
+}
 
 func init() {
 	// turn off info & debug logging for unit tests
@@ -53,20 +60,48 @@ func cleanupTest(hostDir, rootfs string) {
 	os.RemoveAll(rootfs)
 }
 
-func populateDir(base string, files []string) error {
+func populateDir(base string, uid, gid uint32, files []testFile) error {
 	data := []byte("some data")
 
+	// create the files in the directory
 	for _, file := range files {
-		dir := filepath.Dir(file)
+
+		dir := filepath.Dir(file.name)
 		path := filepath.Join(base, dir)
 		if err := os.MkdirAll(path, 0700); err != nil {
 			return fmt.Errorf("failed to create dir %v: %v", path, err)
 		}
 
-		path = filepath.Join(base, file)
+		path = filepath.Join(base, file.name)
+
 		if err := ioutil.WriteFile(path, data, 0700); err != nil {
 			return fmt.Errorf("failed to create file %v: %v", path, err)
 		}
+	}
+
+	// chown the files
+	err := filepath.Walk(base, func(path string, fi os.FileInfo, err error) error {
+		if err == nil {
+
+			// chown all dirs & files to the given uid & gid by default
+			if err := os.Chown(path, int(uid), int(gid)); err != nil {
+				return fmt.Errorf("chown on %s failed: %s", path, err)
+			}
+
+			// for the given files, chown to the file-specific uid & gid
+			for _, file := range files {
+				if strings.Contains(path, file.name) {
+					if err := os.Chown(path, int(file.uid), int(file.gid)); err != nil {
+						return fmt.Errorf("chown on %s failed: %s", path, err)
+					}
+				}
+			}
+		}
+		return err
+	})
+
+	if err != nil {
+		return fmt.Errorf("failed to chown files: %s", err)
 	}
 
 	return nil
@@ -212,7 +247,7 @@ func testSyncInWork(t *testing.T, shiftUids bool) {
 	gid := uint32(os.Getegid())
 
 	if uid != 0 && gid != 0 {
-		t.Skip("This test only runs as root, as it changes file ownerships")
+		t.Skip("This test only runs as root")
 	}
 
 	hostDir, rootfs, err := setupTest()
@@ -227,24 +262,36 @@ func testSyncInWork(t *testing.T, shiftUids bool) {
 	uid = 231072
 	gid = 231072
 
-	files := []string{"testdir1/a/b/c/d/file0", "testdir1/a/file1", "testdir3/a/b/file2"}
-	mountPath := filepath.Join(rootfs, mountpoint)
+	rootfsUidOffset := uint32(0)
+	rootfsGidOffset := uint32(0)
 
-	if err := populateDir(mountPath, files); err != nil {
-		t.Errorf("failed to populate rootfs mountpoint: %v", err)
+	if !shiftUids {
+		rootfsUidOffset = uid
+		rootfsGidOffset = gid
 	}
 
-	// set the ownerships on all files under "<rootfs>/var/lib/kubelet" to root:root
-	err = filepath.Walk(mountPath, func(path string, fi os.FileInfo, err error) error {
-		if err == nil {
-			if err := os.Chown(path, 0, 0); err != nil {
-				return fmt.Errorf("chown on %s failed: %s", path, err)
-			}
-		}
-		return err
-	})
-	if err != nil {
-		t.Errorf("set ownership failed: %s", err)
+	files := []testFile{
+		{
+			name: "testdir1/a/b/c/d/file0",
+			uid:  rootfsUidOffset + 0,
+			gid:  rootfsGidOffset + 0,
+		},
+		{
+			name: "testdir1/a/file1",
+			uid:  rootfsUidOffset + 1000,
+			gid:  rootfsGidOffset + 1000,
+		},
+		{
+			name: "testdir3/a/b/file2",
+			uid:  rootfsUidOffset + 100,
+			gid:  rootfsGidOffset + 100,
+		},
+	}
+
+	mountPath := filepath.Join(rootfs, mountpoint)
+
+	if err := populateDir(mountPath, rootfsUidOffset, rootfsGidOffset, files); err != nil {
+		t.Errorf("failed to populate rootfs mountpoint: %v", err)
 	}
 
 	// create the volume mgr; this triggers the sync-in automatically.
@@ -265,18 +312,22 @@ func testSyncInWork(t *testing.T, shiftUids bool) {
 		t.Errorf("directory comparison between %v and %v failed: %v", volPath, mountPath, err)
 	}
 
+	// verify the sync-in shifted the file uid and gid correctly
 	err = filepath.Walk(volPath, func(path string, fi os.FileInfo, err error) error {
-		var (
-			wantUid uint32
-			wantGid uint32
-		)
+		wantUid := uint32(uid)
+		wantGid := uint32(gid)
 
-		if shiftUids {
-			wantUid = uid
-			wantGid = gid
-		} else {
-			wantUid = 0
-			wantGid = 0
+		for _, f := range files {
+			if filepath.Base(f.name) == filepath.Base(path) {
+				if shiftUids {
+					// sync-in shifts uids by adding the container's root uid to them
+					wantUid = uid + f.uid
+					wantGid = gid + f.gid
+				} else {
+					wantUid = f.uid
+					wantGid = f.gid
+				}
+			}
 		}
 
 		if err == nil {
@@ -288,6 +339,7 @@ func testSyncInWork(t *testing.T, shiftUids bool) {
 		}
 		return err
 	})
+
 	if err != nil {
 		t.Errorf("ownership check failed: %s", err)
 	}
@@ -306,7 +358,7 @@ func testSyncOutWork(t *testing.T, shiftUids bool) {
 	gid := uint32(os.Getegid())
 
 	if uid != 0 && gid != 0 {
-		t.Skip("This test only runs as root, as it changes file ownerships")
+		t.Skip("This test only runs as root")
 	}
 
 	hostDir, rootfs, err := setupTest()
@@ -333,22 +385,27 @@ func testSyncOutWork(t *testing.T, shiftUids bool) {
 
 	// Add some files to the volume mgr
 	volPath := filepath.Join(hostDir, id)
-	files := []string{"testdir1/a/b/c/d/file0", "testdir1/a/file1", "testdir3/a/b/file2"}
-	if err := populateDir(volPath, files); err != nil {
-		t.Errorf("failed to populate vol at path %s: %s", volPath, err)
+
+	files := []testFile{
+		{
+			name: "testdir1/a/b/c/d/file0",
+			uid:  uid + 0,
+			gid:  gid + 0,
+		},
+		{
+			name: "testdir1/a/file1",
+			uid:  uid + 1000,
+			gid:  gid + 1000,
+		},
+		{
+			name: "testdir3/a/b/file2",
+			uid:  uid + 100,
+			gid:  gid + 100,
+		},
 	}
 
-	// set the ownerships on all files in the vol to uid:gid
-	err = filepath.Walk(volPath, func(path string, fi os.FileInfo, err error) error {
-		if err == nil {
-			if err := os.Chown(path, int(uid), int(gid)); err != nil {
-				return fmt.Errorf("chown on %s failed: %s", path, err)
-			}
-		}
-		return err
-	})
-	if err != nil {
-		t.Errorf("failed to change ownership on %s: %s", volPath, err)
+	if err := populateDir(volPath, uid, gid, files); err != nil {
+		t.Errorf("failed to populate vol at path %s: %s", volPath, err)
 	}
 
 	// sync-out the vol to the rootfs; this will create the target dir automatically
@@ -364,10 +421,7 @@ func testSyncOutWork(t *testing.T, shiftUids bool) {
 	}
 
 	err = filepath.Walk(mountPath, func(path string, fi os.FileInfo, err error) error {
-		var (
-			wantUid uint32
-			wantGid uint32
-		)
+		var wantUid, wantGid uint32
 
 		if shiftUids {
 			wantUid = 0
@@ -375,6 +429,19 @@ func testSyncOutWork(t *testing.T, shiftUids bool) {
 		} else {
 			wantUid = uid
 			wantGid = gid
+		}
+
+		for _, f := range files {
+			if filepath.Base(f.name) == filepath.Base(path) {
+				if shiftUids {
+					// sync-out shifts uids by subtracting the container's root uid from them
+					wantUid = f.uid - uid
+					wantGid = f.gid - gid
+				} else {
+					wantUid = f.uid
+					wantGid = f.gid
+				}
+			}
 		}
 
 		if err == nil {
@@ -386,6 +453,7 @@ func testSyncOutWork(t *testing.T, shiftUids bool) {
 		}
 		return err
 	})
+
 	if err != nil {
 		t.Errorf("ownership check failed: %s", err)
 	}

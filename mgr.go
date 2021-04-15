@@ -31,6 +31,7 @@ import (
 	"github.com/nestybox/sysbox-libs/formatter"
 	libutils "github.com/nestybox/sysbox-libs/utils"
 	utils "github.com/nestybox/sysbox-libs/utils"
+	"github.com/nestybox/sysbox-mgr/idShiftUtils"
 	intf "github.com/nestybox/sysbox-mgr/intf"
 	"github.com/nestybox/sysbox-mgr/shiftfsMgr"
 	"github.com/opencontainers/runc/libcontainer/configs"
@@ -349,7 +350,7 @@ func (mgr *SysboxMgr) unregister(id string) error {
 			uidOffset := revInfo.targetUid - revInfo.origUid
 			gidOffset := revInfo.targetGid - revInfo.origGid
 
-			if err = shiftUidsWithChown(revInfo.path, uidOffset, gidOffset, offsetSub); err != nil {
+			if err = idShiftUtils.ShiftIdsWithChown(revInfo.path, uidOffset, gidOffset, idShiftUtils.OffsetSub); err != nil {
 				logrus.Warnf("failed to revert uid-shift of mount source at %s: %s", revInfo.path, err)
 			}
 
@@ -692,7 +693,7 @@ func (mgr *SysboxMgr) prepMounts(id string, uid, gid uint32, shiftUids bool, pre
 				uidOffset := uid - origUid
 				gidOffset := gid - origGid
 
-				if err = shiftUidsWithChown(src, uidOffset, gidOffset, offsetAdd); err != nil {
+				if err = idShiftUtils.ShiftIdsWithChown(src, uidOffset, gidOffset, idShiftUtils.OffsetAdd); err != nil {
 					return fmt.Errorf("failed to shift uids via chown for mount source at %s: %s", src, err)
 				}
 
