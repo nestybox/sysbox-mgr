@@ -29,7 +29,6 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/karrick/godirwalk"
 	"github.com/nestybox/sysbox-libs/dockerUtils"
 	libutils "github.com/nestybox/sysbox-libs/utils"
 	utils "github.com/nestybox/sysbox-libs/utils"
@@ -427,88 +426,6 @@ func removeDirContents(path string) error {
 		}
 	}
 	return nil
-}
-
-type offsetType int
-
-const (
-	offsetAdd offsetType = iota
-	offsetSub
-)
-
-func shiftUidsWithChown(baseDir string, uidOffset, gidOffset uint32, offsetDir offsetType) error {
-
-	hardLinks := []uint64{}
-
-	err := godirwalk.Walk(baseDir, &godirwalk.Options{
-		Callback: func(path string, de *godirwalk.Dirent) error {
-			var targetUid, targetGid uint32
-
-			// When doing the chown, we don't follow symlinks as we want to change
-			// the ownership of the symlinks themselves. We will chown the
-			// symlink's target during the godirwalk (wunless the symlink is
-			// dangling in which case there is nothing to be done).
-
-			fi, err := os.Lstat(path)
-			if err != nil {
-				return err
-			}
-
-			st, ok := fi.Sys().(*syscall.Stat_t)
-			if !ok {
-				return fmt.Errorf("failed to convert to syscall.Stat_t")
-			}
-
-			// If a file has multiple hardlinks, change its ownership once
-			if st.Nlink >= 2 {
-				for _, linkInode := range hardLinks {
-					if linkInode == st.Ino {
-						return nil
-					}
-				}
-
-				hardLinks = append(hardLinks, st.Ino)
-			}
-
-			if offsetDir == offsetAdd {
-				targetUid = st.Uid + uidOffset
-				targetGid = st.Gid + gidOffset
-			} else {
-				targetUid = st.Uid - uidOffset
-				targetGid = st.Gid - gidOffset
-			}
-
-			logrus.Debugf("chown %s from %d:%d to %d:%d", path, st.Uid, st.Gid, targetUid, targetGid)
-
-			err = unix.Lchown(path, int(targetUid), int(targetGid))
-			if err != nil {
-				return fmt.Errorf("chown %s to %d:%d failed: %s", path, targetUid, targetGid, err)
-			}
-
-			// TODO: deal with linux ACL ownership
-
-			return nil
-		},
-
-		ErrorCallback: func(path string, err error) godirwalk.ErrorAction {
-
-			fi, err := os.Lstat(path)
-			if err != nil {
-				return godirwalk.Halt
-			}
-
-			// Ignore errors due to chown on dangling symlinks (they often occur in container image layers)
-			if fi.Mode()&os.ModeSymlink == os.ModeSymlink {
-				return godirwalk.SkipNode
-			}
-
-			return godirwalk.Halt
-		},
-
-		Unsorted: true,
-	})
-
-	return err
 }
 
 // Sanitize the given container's rootfs.

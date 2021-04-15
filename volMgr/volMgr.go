@@ -1,5 +1,5 @@
 //
-// Copyright 2019-2020 Nestybox, Inc.
+// Copyright 2019-2021 Nestybox, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -34,10 +34,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"sync"
 
 	"github.com/nestybox/sysbox-libs/formatter"
+	"github.com/nestybox/sysbox-mgr/idShiftUtils"
 	"github.com/nestybox/sysbox-mgr/intf"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
@@ -127,9 +127,18 @@ func (m *vmgr) CreateVol(id, rootfs, mountpoint string, uid, gid uint32, shiftUi
 	if m.sync {
 		// Sync the contents of container's mountpoint to the newly created volume ("sync-in")
 		if _, err := os.Stat(mountPath); err == nil {
-			if err = m.rsyncVol(mountPath, volPath, uid, gid, shiftUids); err != nil {
+
+			if err = m.rsyncVol(mountPath, volPath); err != nil {
 				os.RemoveAll(volPath)
 				return nil, fmt.Errorf("volume sync-in failed: %v", err)
+			}
+
+			if vi.shiftUids {
+				// Shift ownership from 0:0 -> uid:gid
+				if err = idShiftUtils.ShiftIdsWithChown(volPath, uid, gid, idShiftUtils.OffsetAdd); err != nil {
+					os.RemoveAll(volPath)
+					return nil, fmt.Errorf("volume chown for %s failed: %v", volPath, err)
+				}
 			}
 		}
 	}
@@ -219,7 +228,7 @@ func (m *vmgr) SyncOut(id string) error {
 
 	// If the sync-out target exists, perform the rsync
 	if _, err := os.Stat(vi.mountPath); err == nil {
-		if err := m.rsyncVol(vi.volPath, vi.mountPath, 0, 0, vi.shiftUids); err != nil {
+		if err := m.rsyncVol(vi.volPath, vi.mountPath); err != nil {
 
 			// For sync-outs, the operation may fail if the target is removed while
 			// we are doing the copy. In this case we ignore the error since there
@@ -234,6 +243,22 @@ func (m *vmgr) SyncOut(id string) error {
 			}
 
 			return fmt.Errorf("volume sync-out failed: %v", err)
+		}
+
+		if vi.shiftUids {
+
+			// Shift ownership from uid:gid -> 0:0
+			if err = idShiftUtils.ShiftIdsWithChown(vi.mountPath, vi.uid, vi.gid, idShiftUtils.OffsetSub); err != nil {
+
+				_, err2 := os.Stat(vi.mountPath)
+				if err2 != nil && os.IsNotExist(err2) {
+					logrus.Debugf("%s: volume chown for container %s skipped: target %s does not exist",
+						m.name, formatter.ContainerID{id}, vi.mountPath)
+					return nil
+				}
+
+				return fmt.Errorf("volume chown for %s failed: %v", vi.mountPath, err)
+			}
 		}
 	}
 
@@ -258,14 +283,15 @@ func (m *vmgr) SyncOutAndDestroyAll() {
 }
 
 // rsyncVol performs an rsync from src to dest; if shiftUids is true, the rsync
-// modifies the ownership of files copied to dest to match the given uid(gid).
+// "shiftfs" the ownership of files copied to dest by the given user and group
+// ID offsets.
 //
 // Note that this can result in many file descriptors being opened by rsync,
 // which the kernel may account to sysbox-mgr. Thus, the file open limit for
 // sysbox-mgr should be very high / unlimited since the number of open files
 // depends on how much data there is to copy and how many containers are active
 // at a given time.
-func (m *vmgr) rsyncVol(src, dest string, uid, gid uint32, shiftUids bool) error {
+func (m *vmgr) rsyncVol(src, dest string) error {
 
 	var cmd *exec.Cmd
 	var output bytes.Buffer
@@ -278,19 +304,13 @@ func (m *vmgr) rsyncVol(src, dest string, uid, gid uint32, shiftUids bool) error
 	// timestamp is low. If this assumption changes we could pass the `--checksum` option
 	// to rsync, but this will slow the copy operation significantly.
 
-	if shiftUids {
-		chown := "--chown=" + strconv.FormatUint(uint64(uid), 10) + ":" + strconv.FormatUint(uint64(gid), 10)
-		cmd = exec.Command("rsync", "-rauqlH", "--no-specials", "--no-devices", "--delete", chown, srcDir, dest)
-	} else {
-		cmd = exec.Command("rsync", "-rauqlH", "--no-specials", "--no-devices", "--delete", srcDir, dest)
-	}
-
+	cmd = exec.Command("rsync", "-rauqlH", "--no-specials", "--no-devices", "--delete", srcDir, dest)
 	cmd.Stdout = &output
 	cmd.Stderr = &output
 
 	err := cmd.Run()
 	if err != nil {
-		return fmt.Errorf("failed to sync %s to %s: %v %v", srcDir, dest, string(output.Bytes()), err)
+		return fmt.Errorf("rsync %s to %s: %v %v", srcDir, dest, string(output.Bytes()), err)
 	}
 
 	return nil
