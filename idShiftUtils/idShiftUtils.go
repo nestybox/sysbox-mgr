@@ -21,8 +21,11 @@ package idShiftUtils
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"syscall"
 
+	"github.com/joshlf/go-acl"
+	aclLib "github.com/joshlf/go-acl"
 	"github.com/karrick/godirwalk"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
@@ -34,6 +37,112 @@ const (
 	OffsetAdd OffsetType = iota
 	OffsetSub
 )
+
+type aclType int
+
+const (
+	aclTypeAccess aclType = iota
+	aclTypeDefault
+)
+
+// Shifts the ACL type user and group IDs by the given offset
+func shiftAclType(aclT aclType, file *os.File, uidOffset, gidOffset uint32, offsetDir OffsetType) error {
+	var facl aclLib.ACL
+	var err error
+
+	// Read the ACL
+	if aclT == aclTypeDefault {
+		facl, err = acl.FGetDefault(file)
+	} else {
+		facl, err = acl.FGet(file)
+	}
+
+	if err != nil {
+		return fmt.Errorf("failed to get ACL for %s: %s", file.Name(), err)
+	}
+
+	// Shift the user and group ACLs (if any)
+	newACL := aclLib.ACL{}
+
+	for _, e := range facl {
+
+		// ACL_USER id shifting
+		if e.Tag == aclLib.TagUser {
+			uid, err := strconv.ParseUint(e.Qualifier, 10, 32)
+			if err != nil {
+				logrus.Warnf("failed to convert ACL qualifier for %v: %s", e, err)
+				continue
+			}
+
+			if offsetDir == OffsetAdd {
+				uid = uid + uint64(uidOffset)
+			} else {
+				uid = uid - uint64(uidOffset)
+			}
+
+			e.Qualifier = strconv.FormatUint(uid, 10)
+		}
+
+		// ACL_GROUP id shifting
+		if e.Tag == aclLib.TagGroup {
+			gid, err := strconv.ParseUint(e.Qualifier, 10, 32)
+			if err != nil {
+				logrus.Warnf("failed to convert ACL qualifier %v: %s", e, err)
+				continue
+			}
+
+			if offsetDir == OffsetAdd {
+				gid = gid + uint64(gidOffset)
+			} else {
+				gid = gid - uint64(gidOffset)
+			}
+
+			e.Qualifier = strconv.FormatUint(gid, 10)
+		}
+
+		newACL = append(newACL, e)
+	}
+
+	// Write back the modified ACL
+	if len(newACL) > 1 {
+		if aclT == aclTypeDefault {
+			err = acl.FSetDefault(file, newACL)
+		} else {
+			err = acl.FSet(file, newACL)
+		}
+		if err != nil {
+			return fmt.Errorf("failed to set ACL %v for %s: %s", newACL, file.Name(), err)
+		}
+	}
+
+	return nil
+}
+
+// Shifts the ACL user and group IDs by the given offset, both for access and default ACLs
+func shiftAclIds(path string, isDir bool, uidOffset, gidOffset uint32, offsetDir OffsetType) error {
+
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	// Access list
+	err = shiftAclType(aclTypeAccess, file, uidOffset, gidOffset, offsetDir)
+	if err != nil {
+		return err
+	}
+
+	// Default list (for directories only)
+	if isDir {
+		err = shiftAclType(aclTypeDefault, file, uidOffset, gidOffset, offsetDir)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
 
 // "Shifts" ownership of user and group IDs on the given directory and files and directories
 // below it by the given offset, using chown.
@@ -86,7 +195,14 @@ func ShiftIdsWithChown(baseDir string, uidOffset, gidOffset uint32, offsetDir Of
 				return fmt.Errorf("chown %s to %d:%d failed: %s", path, targetUid, targetGid, err)
 			}
 
-			// TODO: deal with Linux ACL ownership
+			// Chowning the file is not sufficient; we also need to shift user and group IDs in
+			// the Linux access control list (ACL) for the file
+
+			if fi.Mode()&os.ModeSymlink == 0 {
+				if err := shiftAclIds(path, fi.IsDir(), uidOffset, gidOffset, offsetDir); err != nil {
+					return fmt.Errorf("failed to shift ACL for %s: %s", path, err)
+				}
+			}
 
 			return nil
 		},
