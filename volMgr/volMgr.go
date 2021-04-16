@@ -282,15 +282,13 @@ func (m *vmgr) SyncOutAndDestroyAll() {
 	}
 }
 
-// rsyncVol performs an rsync from src to dest; if shiftUids is true, the rsync
-// "shiftfs" the ownership of files copied to dest by the given user and group
-// ID offsets.
+// rsyncVol performs an rsync from src to dest.
 //
-// Note that this can result in many file descriptors being opened by rsync,
-// which the kernel may account to sysbox-mgr. Thus, the file open limit for
-// sysbox-mgr should be very high / unlimited since the number of open files
-// depends on how much data there is to copy and how many containers are active
-// at a given time.
+// Note that depending no how much data is transferred, this operation can
+// result in many file descriptors being opened by rsync, which the kernel may
+// account to sysbox-mgr. Thus, the file open limit for sysbox-mgr should be
+// very high / unlimited since the number of open files depends on how much data
+// there is to copy and how many containers are active at a given time.
 func (m *vmgr) rsyncVol(src, dest string) error {
 
 	var cmd *exec.Cmd

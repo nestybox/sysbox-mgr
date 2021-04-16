@@ -344,7 +344,7 @@ func (mgr *SysboxMgr) unregister(id string) error {
 		if revInfo.uidShifted {
 			logrus.Infof("reverting uid-shift on %s for %s", revInfo.path, formatter.ContainerID{id})
 
-			// revInfo.origUid is guaranteed to be higher than revInfo.targetUid
+			// revInfo.targetUid is guaranteed to be higher than revInfo.origUid
 			// (we checked in prepMounts())
 
 			uidOffset := revInfo.targetUid - revInfo.origUid
