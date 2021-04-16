@@ -700,16 +700,20 @@ func mntSrcUidShiftNeeded(mntSrc string, uid, gid uint32) (bool, uint32, uint32,
 	mntSrcUid = st.Uid
 	mntSrcGid = st.Gid
 
-	// We expect the host uid assigned to the container to be equal or higher
-	// than the uid of the dir being mounted into the container (i.e., the former
-	// is a container-range uid, the latter is a uid in the normal range of host
-	// uids).
-
+	// If the host uid assigned to the container is higher than the uid
+	// of the dir being mounted into the conatiner, then we perform uid
+	// shifting. Same for gid.
 	if uid > mntSrcUid && gid > mntSrcGid {
 		return true, mntSrcUid, mntSrcGid, nil
 	}
 
-	if uid < mntSrcUid && gid < mntSrcGid {
+	// If the host uid assigned to the container is lower than the uid of the dir
+	// being mounted, we skip the uid shift. This is in fact an anomalous case
+	// because in general the host dir being mounted into the container should
+	// have host range uids (e.g., 0->65535) and these are usually lower than the
+	// uids assigned to the container (which come from the subuid ranges in
+	// /etc/subuid).
+	if uid < mntSrcUid || gid < mntSrcGid {
 
 		logrus.Infof("skipping uid shift on %s because its uid:gid (%d:%d) is "+
 			"> the container's assigned uid:gid (%d:%d)",
@@ -721,7 +725,6 @@ func mntSrcUidShiftNeeded(mntSrc string, uid, gid uint32) (bool, uint32, uint32,
 	// If the mount dir has same ownership as the container, check the subdirs
 	// before we make a determination on whether ownership shifting will be
 	// required.
-
 	dirFis := []os.FileInfo{}
 
 	dirFis, err = ioutil.ReadDir(mntSrc)

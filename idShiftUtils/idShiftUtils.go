@@ -156,7 +156,7 @@ func ShiftIdsWithChown(baseDir string, uidOffset, gidOffset uint32, offsetDir Of
 
 			// When doing the chown, we don't follow symlinks as we want to change
 			// the ownership of the symlinks themselves. We will chown the
-			// symlink's target during the godirwalk (wunless the symlink is
+			// symlink's target during the godirwalk (unless the symlink is
 			// dangling in which case there is nothing to be done).
 
 			fi, err := os.Lstat(path)
