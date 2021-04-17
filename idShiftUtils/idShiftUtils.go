@@ -63,6 +63,7 @@ func shiftAclType(aclT aclType, file *os.File, uidOffset, gidOffset uint32, offs
 
 	// Shift the user and group ACLs (if any)
 	newACL := aclLib.ACL{}
+	aclShifted := false
 
 	for _, e := range facl {
 
@@ -81,6 +82,7 @@ func shiftAclType(aclT aclType, file *os.File, uidOffset, gidOffset uint32, offs
 			}
 
 			e.Qualifier = strconv.FormatUint(uid, 10)
+			aclShifted = true
 		}
 
 		// ACL_GROUP id shifting
@@ -98,13 +100,17 @@ func shiftAclType(aclT aclType, file *os.File, uidOffset, gidOffset uint32, offs
 			}
 
 			e.Qualifier = strconv.FormatUint(gid, 10)
+			aclShifted = true
 		}
 
 		newACL = append(newACL, e)
 	}
 
 	// Write back the modified ACL
-	if len(newACL) > 1 {
+	if aclShifted {
+
+		logrus.Debugf("shifting ACLs for %s", file.Name())
+
 		if aclT == aclTypeDefault {
 			err = acl.FSetDefault(file, newACL)
 		} else {
@@ -113,6 +119,8 @@ func shiftAclType(aclT aclType, file *os.File, uidOffset, gidOffset uint32, offs
 		if err != nil {
 			return fmt.Errorf("failed to set ACL %v for %s: %s", newACL, file.Name(), err)
 		}
+
+		logrus.Debugf("ACL shift for %s done", file.Name())
 	}
 
 	return nil
