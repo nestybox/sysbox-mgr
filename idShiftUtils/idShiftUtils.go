@@ -29,6 +29,8 @@ import (
 	"github.com/karrick/godirwalk"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
+
+	mapset "github.com/deckarep/golang-set"
 )
 
 type OffsetType int
@@ -234,4 +236,52 @@ func ShiftIdsWithChown(baseDir string, uidOffset, gidOffset uint32, offsetDir Of
 	})
 
 	return err
+}
+
+// Returns the lists of user and group IDs for all files and directories at or
+// below the given path.
+func GetDirIDs(baseDir string) ([]uint32, []uint32, error) {
+
+	uidSet := mapset.NewSet()
+	gidSet := mapset.NewSet()
+
+	err := godirwalk.Walk(baseDir, &godirwalk.Options{
+		Callback: func(path string, de *godirwalk.Dirent) error {
+
+			fi, err := os.Lstat(path)
+			if err != nil {
+				return err
+			}
+
+			st, ok := fi.Sys().(*syscall.Stat_t)
+			if !ok {
+				return fmt.Errorf("failed to convert to syscall.Stat_t")
+			}
+
+			uidSet.Add(st.Uid)
+			gidSet.Add(st.Gid)
+
+			return nil
+		},
+
+		Unsorted: true, // Speeds up the directory tree walk
+	})
+
+	if err != nil {
+		return nil, nil, err
+	}
+
+	uidList := []uint32{}
+	for _, id := range uidSet.ToSlice() {
+		val := id.(uint32)
+		uidList = append(uidList, val)
+	}
+
+	gidList := []uint32{}
+	for _, id := range gidSet.ToSlice() {
+		val := id.(uint32)
+		gidList = append(gidList, val)
+	}
+
+	return uidList, gidList, nil
 }

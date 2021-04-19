@@ -34,6 +34,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/nestybox/sysbox-libs/formatter"
@@ -60,6 +61,13 @@ type vmgr struct {
 	volTable map[string]volInfo // cont id -> volume info
 	mu       sync.Mutex
 }
+
+type shiftType int
+
+const (
+	shiftUp shiftType = iota
+	shiftDown
+)
 
 // Creates a new instance of the volume manager.
 // 'name' is the name for this volume manager.
@@ -127,18 +135,9 @@ func (m *vmgr) CreateVol(id, rootfs, mountpoint string, uid, gid uint32, shiftUi
 	if m.sync {
 		// Sync the contents of container's mountpoint to the newly created volume ("sync-in")
 		if _, err := os.Stat(mountPath); err == nil {
-
-			if err = m.rsyncVol(mountPath, volPath); err != nil {
+			if err = m.rsyncVol(mountPath, volPath, uid, gid, shiftUids, shiftUp); err != nil {
 				os.RemoveAll(volPath)
 				return nil, fmt.Errorf("volume sync-in failed: %v", err)
-			}
-
-			if vi.shiftUids {
-				// Shift ownership from 0:0 -> uid:gid
-				if err = idShiftUtils.ShiftIdsWithChown(volPath, uid, gid, idShiftUtils.OffsetAdd); err != nil {
-					os.RemoveAll(volPath)
-					return nil, fmt.Errorf("volume chown for %s failed: %v", volPath, err)
-				}
 			}
 		}
 	}
@@ -228,7 +227,7 @@ func (m *vmgr) SyncOut(id string) error {
 
 	// If the sync-out target exists, perform the rsync
 	if _, err := os.Stat(vi.mountPath); err == nil {
-		if err := m.rsyncVol(vi.volPath, vi.mountPath); err != nil {
+		if err := m.rsyncVol(vi.volPath, vi.mountPath, vi.uid, vi.gid, vi.shiftUids, shiftDown); err != nil {
 
 			// For sync-outs, the operation may fail if the target is removed while
 			// we are doing the copy. In this case we ignore the error since there
@@ -243,22 +242,6 @@ func (m *vmgr) SyncOut(id string) error {
 			}
 
 			return fmt.Errorf("volume sync-out failed: %v", err)
-		}
-
-		if vi.shiftUids {
-
-			// Shift ownership from uid:gid -> 0:0
-			if err = idShiftUtils.ShiftIdsWithChown(vi.mountPath, vi.uid, vi.gid, idShiftUtils.OffsetSub); err != nil {
-
-				_, err2 := os.Stat(vi.mountPath)
-				if err2 != nil && os.IsNotExist(err2) {
-					logrus.Debugf("%s: volume chown for container %s skipped: target %s does not exist",
-						m.name, formatter.ContainerID{id}, vi.mountPath)
-					return nil
-				}
-
-				return fmt.Errorf("volume chown for %s failed: %v", vi.mountPath, err)
-			}
 		}
 	}
 
@@ -282,27 +265,57 @@ func (m *vmgr) SyncOutAndDestroyAll() {
 	}
 }
 
-// rsyncVol performs an rsync from src to dest.
+// rsyncVol performs an rsync from src to dest. If shiftUids is true, it also
+// performs filesystem user-ID and group-ID shifting (via chown) using an
+// offset specified via uid and gid.
 //
 // Note that depending no how much data is transferred, this operation can
 // result in many file descriptors being opened by rsync, which the kernel may
 // account to sysbox-mgr. Thus, the file open limit for sysbox-mgr should be
 // very high / unlimited since the number of open files depends on how much data
 // there is to copy and how many containers are active at a given time.
-func (m *vmgr) rsyncVol(src, dest string) error {
+func (m *vmgr) rsyncVol(src, dest string, uid, gid uint32, shiftUids bool, shiftT shiftType) error {
 
 	var cmd *exec.Cmd
 	var output bytes.Buffer
+	var usermap, groupmap string
 
-	srcDir := src + "/"
+	if shiftUids {
+		srcUidList, srcGidList, err := idShiftUtils.GetDirIDs(src)
+		if err != nil {
+			return fmt.Errorf("failed to get user and group IDs for %s: %s", src, err)
+		}
+
+		// Get the usermap and groupmap options to pass to rsync
+		usermap = rsyncIdMapOpt(srcUidList, uid, shiftT)
+		groupmap = rsyncIdMapOpt(srcGidList, gid, shiftT)
+
+		if usermap != "" {
+			usermap = "--usermap=" + usermap
+		}
+
+		if groupmap != "" {
+			groupmap = "--groupmap=" + groupmap
+		}
+	}
 
 	// Note: rsync uses file modification time and size to determine if a sync is
 	// needed. This should be fine for sync'ing the sys container's directories,
 	// assuming the probability of files being different yet having the same size &
 	// timestamp is low. If this assumption changes we could pass the `--checksum` option
 	// to rsync, but this will slow the copy operation significantly.
+	srcDir := src + "/"
 
-	cmd = exec.Command("rsync", "-rauqlH", "--no-specials", "--no-devices", "--delete", srcDir, dest)
+	if usermap == "" && groupmap == "" {
+		cmd = exec.Command("rsync", "-rauqlH", "--no-specials", "--no-devices", "--delete", srcDir, dest)
+	} else if usermap != "" && groupmap == "" {
+		cmd = exec.Command("rsync", "-rauqlH", "--no-specials", "--no-devices", "--delete", usermap, srcDir, dest)
+	} else if usermap == "" && groupmap != "" {
+		cmd = exec.Command("rsync", "-rauqlH", "--no-specials", "--no-devices", "--delete", groupmap, srcDir, dest)
+	} else {
+		cmd = exec.Command("rsync", "-rauqlH", "--no-specials", "--no-devices", "--delete", usermap, groupmap, srcDir, dest)
+	}
+
 	cmd.Stdout = &output
 	cmd.Stderr = &output
 
@@ -312,6 +325,26 @@ func (m *vmgr) rsyncVol(src, dest string) error {
 	}
 
 	return nil
+}
+
+func rsyncIdMapOpt(idList []uint32, offset uint32, shiftT shiftType) string {
+	var destId uint32
+
+	mapOpt := ""
+	for _, srcId := range idList {
+		if shiftT == shiftUp {
+			destId = srcId + offset
+		} else {
+			destId = srcId - offset
+		}
+		mapOpt += fmt.Sprintf("%d:%d,", srcId, destId)
+	}
+
+	if mapOpt != "" {
+		mapOpt = strings.TrimSuffix(mapOpt, ",")
+	}
+
+	return mapOpt
 }
 
 func dirIsEmpty(name string) (bool, error) {
