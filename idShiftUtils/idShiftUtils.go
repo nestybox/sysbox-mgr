@@ -48,19 +48,19 @@ const (
 )
 
 // Shifts the ACL type user and group IDs by the given offset
-func shiftAclType(aclT aclType, file *os.File, uidOffset, gidOffset uint32, offsetDir OffsetType) error {
+func shiftAclType(aclT aclType, path string, uidOffset, gidOffset uint32, offsetDir OffsetType) error {
 	var facl aclLib.ACL
 	var err error
 
 	// Read the ACL
 	if aclT == aclTypeDefault {
-		facl, err = acl.FGetDefault(file)
+		facl, err = acl.GetDefault(path)
 	} else {
-		facl, err = acl.FGet(file)
+		facl, err = acl.Get(path)
 	}
 
 	if err != nil {
-		return fmt.Errorf("failed to get ACL for %s: %s", file.Name(), err)
+		return fmt.Errorf("failed to get ACL for %s: %s", path, err)
 	}
 
 	// Shift the user and group ACLs (if any)
@@ -111,18 +111,18 @@ func shiftAclType(aclT aclType, file *os.File, uidOffset, gidOffset uint32, offs
 	// Write back the modified ACL
 	if aclShifted {
 
-		logrus.Debugf("shifting ACLs for %s", file.Name())
+		logrus.Debugf("shifting ACLs for %s", path)
 
 		if aclT == aclTypeDefault {
-			err = acl.FSetDefault(file, newACL)
+			err = acl.SetDefault(path, newACL)
 		} else {
-			err = acl.FSet(file, newACL)
+			err = acl.Set(path, newACL)
 		}
 		if err != nil {
-			return fmt.Errorf("failed to set ACL %v for %s: %s", newACL, file.Name(), err)
+			return fmt.Errorf("failed to set ACL %v for %s: %s", newACL, path, err)
 		}
 
-		logrus.Debugf("ACL shift for %s done", file.Name())
+		logrus.Debugf("ACL shift for %s done", path)
 	}
 
 	return nil
@@ -131,21 +131,15 @@ func shiftAclType(aclT aclType, file *os.File, uidOffset, gidOffset uint32, offs
 // Shifts the ACL user and group IDs by the given offset, both for access and default ACLs
 func shiftAclIds(path string, isDir bool, uidOffset, gidOffset uint32, offsetDir OffsetType) error {
 
-	file, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
 	// Access list
-	err = shiftAclType(aclTypeAccess, file, uidOffset, gidOffset, offsetDir)
+	err := shiftAclType(aclTypeAccess, path, uidOffset, gidOffset, offsetDir)
 	if err != nil {
 		return err
 	}
 
 	// Default list (for directories only)
 	if isDir {
-		err = shiftAclType(aclTypeDefault, file, uidOffset, gidOffset, offsetDir)
+		err = shiftAclType(aclTypeDefault, path, uidOffset, gidOffset, offsetDir)
 		if err != nil {
 			return err
 		}
