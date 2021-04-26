@@ -797,8 +797,6 @@ func (mgr *SysboxMgr) prepMounts(id string, uid, gid uint32, prepList []ipcLib.M
 	}
 
 	for _, prepInfo := range prepList {
-
-		var origUid, origGid uint32
 		src := prepInfo.Source
 
 		// Exclusive mounts are mounts that should be mounted in one sys container at a
@@ -817,7 +815,7 @@ func (mgr *SysboxMgr) prepMounts(id string, uid, gid uint32, prepList []ipcLib.M
 		// Check if the mount source has ownership matching that of the
 		// container's root user. If not, modify the ownership of the mount source
 		// accordingly.
-		needUidShift, origUid, origGid, err = mntSrcUidShiftNeeded(src, uid, gid)
+		needUidShift, origUid, origGid, err := mntSrcUidShiftNeeded(src, uid, gid)
 		if err != nil {
 			return fmt.Errorf("failed to check mount source ownership: %s", err)
 		}
