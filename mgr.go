@@ -147,7 +147,7 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		return nil, fmt.Errorf("failed to setup containerd vol mgr: %v", err)
 	}
 
-	shiftfsMgr, err := shiftfsMgr.New()
+	shiftfsMgr, err := shiftfsMgr.New(sysboxLibDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup shiftfs mgr: %v", err)
 	}
@@ -754,7 +754,7 @@ func (mgr *SysboxMgr) allocSubid(id string, size uint64) (uint32, uint32, error)
 	return info.uidInfo.uid, info.uidInfo.gid, nil
 }
 
-func (mgr *SysboxMgr) reqShiftfsMark(id string, rootfs string, mounts []configs.ShiftfsMount) error {
+func (mgr *SysboxMgr) reqShiftfsMark(id string, rootfs string, mounts []configs.ShiftfsMount) ([]configs.ShiftfsMount, error) {
 
 	// get container info
 	mgr.ctLock.Lock()
@@ -762,28 +762,55 @@ func (mgr *SysboxMgr) reqShiftfsMark(id string, rootfs string, mounts []configs.
 	mgr.ctLock.Unlock()
 
 	if !found {
-		return fmt.Errorf("container %s is not registered", formatter.ContainerID{id})
+		return nil, fmt.Errorf("container %s is not registered", formatter.ContainerID{id})
 	}
 
 	if len(info.shiftfsMarks) == 0 {
-		rootfsMnt := configs.ShiftfsMount{
-			Source:   rootfs,
-			Readonly: false,
-		}
-		allMounts := append(mounts, rootfsMnt)
 
-		if err := mgr.shiftfsMgr.Mark(id, allMounts); err != nil {
-			return err
+		// Shiftfs mounts are needed on the rootfs too
+		rootfsMnt := []configs.ShiftfsMount{
+			{
+				Source:   rootfs,
+				Readonly: false,
+			},
 		}
 
-		info.shiftfsMarks = allMounts
+		// For the rootfs mount, don't create a separate markpoint
+		if _, err := mgr.shiftfsMgr.Mark(id, rootfsMnt, false); err != nil {
+
+			// XXX: DEBUG
+			logrus.Warnf("failed to set shiftfs marks for %s on rootfs %s: %v", id, rootfsMnt, err)
+
+			return nil, err
+		}
+
+		// For other mounts into the container, create a separate markpoint; this
+		// avoids mounting shiftfs on host-paths in which it may not be secure or
+		// desirable to do so.
+		markpoints, err := mgr.shiftfsMgr.Mark(id, mounts, true)
+		if err != nil {
+
+			// XXX: DEBUG
+			logrus.Warnf("failed to set shiftfs marks for %s on %s: %v", id, mounts, err)
+
+			return nil, err
+		}
+
+		info.shiftfsMarks = append(info.shiftfsMarks, rootfsMnt...)
+		info.shiftfsMarks = append(info.shiftfsMarks, markpoints...)
 
 		mgr.ctLock.Lock()
 		mgr.contTable[id] = info
 		mgr.ctLock.Unlock()
 	}
 
-	return nil
+	// The shiftfs mark on the rootfs was set implicitly, so we don't return it
+	// in the list of marked mountpoints.
+	if len(info.shiftfsMarks) > 1 {
+		return info.shiftfsMarks[1:], nil
+	} else {
+		return []configs.ShiftfsMount{}, nil
+	}
 }
 
 func (mgr *SysboxMgr) reqFsState(id, rootfs string) ([]configs.FsEntry, error) {

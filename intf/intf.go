@@ -69,8 +69,10 @@ type VolMgr interface {
 // The ShiftfsMgr interface defines the interface exposed by the sysbox-mgr shiftfs manager
 type ShiftfsMgr interface {
 
-	// Add shiftfs marks on the given mountpoints
-	Mark(id string, mounts []configs.ShiftfsMount) error
+	// Set shiftfs marks on the given paths; if createMarkpoint is true, create
+	// new moutpoint directories for each of the given paths. Returns a list of
+	// the paths where the shiftfs marks are set.
+	Mark(id string, mounts []configs.ShiftfsMount, createMarkpoint bool) ([]configs.ShiftfsMount, error)
 
 	// Remove shiftfs marks associated with the given container
 	Unmark(id string, mount []configs.ShiftfsMount) error

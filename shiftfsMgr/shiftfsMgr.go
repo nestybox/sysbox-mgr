@@ -1,5 +1,5 @@
 //
-// Copyright 2019-2020 Nestybox, Inc.
+// Copyright 2019-2021 Nestybox, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -25,9 +25,13 @@ package shiftfsMgr
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"sync"
 
+	uuid "github.com/google/uuid"
 	"github.com/nestybox/sysbox-libs/formatter"
 	intf "github.com/nestybox/sysbox-mgr/intf"
 	"github.com/nestybox/sysbox-runc/libsysbox/shiftfs"
@@ -38,92 +42,179 @@ import (
 var testingMode bool = false
 
 type mgr struct {
-	mpMap map[string][]string // maps each shiftfs markpoint to all it's associated container(s)
-	mu    sync.Mutex          // protects the mark point map
+	workDir string
+	cntrMap map[string][]string // container map (maps shiftfs mount request paths to the associated container(s))
+	mpMap   map[string]string   // markpoint map (maps shiftfs markpoints to mount request paths)
+	mu      sync.Mutex
 }
 
 // Creates a new instance of the shiftfs manager
-func New() (intf.ShiftfsMgr, error) {
+func New(sysboxLibDir string) (intf.ShiftfsMgr, error) {
 
 	// Load the shiftfs module (if present in the kernel)
 	exec.Command("modprobe", "shiftfs").Run()
 
+	workDir := filepath.Join(sysboxLibDir, "shiftfs")
+
+	if err := os.MkdirAll(workDir, 0700); err != nil {
+		return nil, err
+	}
+
 	return &mgr{
-		mpMap: make(map[string][]string),
+		workDir: workDir,
+		cntrMap: make(map[string][]string),
+		mpMap:   make(map[string]string),
 	}, nil
+
 }
 
-func (sm *mgr) Mark(id string, mounts []configs.ShiftfsMount) error {
+// Creates a shiftfs "mark" mount over the given path list, to prepare them for
+// uid-shifting. If "createMarkpoint" is true, then this function creates new
+// mountpoint directories for each of the given paths, under the shiftfs-mgr
+// work dir (e.g., /var/lib/sysbox/shiftfs/<uuid>), and mounts shiftfs with
+// something equivalent to:
+//
+// mount -t shiftfs -o mark <mount-path> /var/lib/sysbox/shiftfs/<uuid>
+//
+// If createMarkpoint is false, then this function does something equivalent to:
+//
+// mount -t shiftfs -o mark <mount-path> <mount-path>
+//
+// Creating a separate markpoint is useful when the caller does not wish to set
+// the shiftfs mark directly over the given paths, as doing so makes them
+// implicitly "no-exec" and in addition can result in a security risk because it
+// would allow unprivileged users to unshare their user-ns and mount shiftfs on
+// those same paths, thereby gaining root access to them. Both of these issues
+// are solve by placing the shiftfs mark over a separate markpoint directory
+// under root-only access (such as /var/lib/sysbox).
+//
+// Returns the list of shiftfs markpoints.
+
+func (sm *mgr) Mark(id string, mountReqs []configs.ShiftfsMount, createMarkpoint bool) ([]configs.ShiftfsMount, error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	for _, m := range mounts {
+	markpoints := []configs.ShiftfsMount{}
 
-		// if mount in mpMap, add container-id to mpMap entry
-		ids, found := sm.mpMap[m.Source]
+	for _, mntReq := range mountReqs {
+
+		mntReqPath := mntReq.Source
+
+		// if mount request path is in the container map, add the container-id to the entry
+		ids, found := sm.cntrMap[mntReqPath]
+
 		if found {
 			ids = append(ids, id)
-			sm.mpMap[m.Source] = ids
+			sm.cntrMap[mntReqPath] = ids
+
+			// Get the markpoint for the mount request path and add it to the list
+			// of markpoints we will return.
+			for mp, mrp := range sm.mpMap {
+				if mrp == mntReqPath {
+					markpoints = append(markpoints, configs.ShiftfsMount{Source: mp})
+				}
+			}
+
 			continue
 		}
 
 		if !testingMode {
+
 			// if shiftfs already marked, no action (some entity other than sysbox did the
 			// marking; we don't track that)
-			mounted, err := shiftfs.Mounted(m.Source)
+			mounted, err := shiftfs.Mounted(mntReqPath)
 			if err != nil {
-				return fmt.Errorf("error while checking for existing shiftfs mount on %s: %v", m.Source, err)
+				return nil, fmt.Errorf("error while checking for existing shiftfs mount on %s: %v", mntReqPath, err)
 			}
+
 			if mounted {
-				logrus.Debugf("skipped shiftfs mark on %s (already mounted)", m.Source)
+				logrus.Debugf("skipped shiftfs mark on %s (already mounted)", mntReqPath)
 				continue
 			}
 
-			if err := shiftfs.Mark(m.Source); err != nil {
-				return err
+			markpoint := mntReqPath
+
+			if createMarkpoint {
+				mntUuid := uuid.New().String()
+				markpoint = filepath.Join(sm.workDir, mntUuid)
+				if err := os.Mkdir(markpoint, 0700); err != nil {
+					return nil, err
+				}
 			}
-			logrus.Debugf("marked shiftfs on %s", m.Source)
+
+			if err := shiftfs.Mark(mntReqPath, markpoint); err != nil {
+				return nil, err
+			}
+
+			sm.mpMap[markpoint] = mntReqPath
+			markpoints = append(markpoints, configs.ShiftfsMount{Source: markpoint})
+
+			logrus.Debugf("marked shiftfs for %s at %s", mntReqPath, markpoint)
 		}
 
-		sm.mpMap[m.Source] = []string{id}
+		sm.cntrMap[mntReqPath] = []string{id}
 	}
 
-	return nil
+	return markpoints, nil
 }
 
-func (sm *mgr) Unmark(id string, mount []configs.ShiftfsMount) error {
+func (sm *mgr) Unmark(id string, markpoints []configs.ShiftfsMount) error {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	for _, m := range mount {
-		ids, found := sm.mpMap[m.Source]
+	for _, mp := range markpoints {
+		markpoint := mp.Source
 
-		// we may not find the mount source in the markpoint map if we skipped it in Mark()
+		// Lookup the mount request path for the given markpoint
+		// we may not find it in the markpoint map if we skipped it in Mark()
 		// (e.g., because it was already mounted by some other entity)
+		mntReqPath, found := sm.mpMap[markpoint]
 		if !found {
 			continue
 		}
 
-		// Remove matching container-id from mpMap entry
+		// Lookup the containers associated with this mount request path
+		ids, ok := sm.cntrMap[mntReqPath]
+		if !ok {
+			logrus.Warnf("shiftfs unmark error: mount request path %s expected to be in container map but it's not.",
+				mntReqPath)
+			continue
+		}
+
+		// Remove matching container-id from cntrMap entry
 		ids, err := removeID(ids, id)
 		if err != nil {
 			return fmt.Errorf("did not find container id %s in mount-point map entry for %s",
-				formatter.ContainerID{id}, m.Source)
+				formatter.ContainerID{id}, mntReqPath)
 		}
 
-		// If after removal the mpMap entry is empty it means there are no more containers
+		// If after removal the cntrMap entry is empty it means there are no more containers
 		// associated with that mount, so we proceed to remove the shiftfs mark. Otherwise,
-		// we simply update the mpMap entry.
+		// we simply update the cntrMap entry.
+
 		if len(ids) == 0 {
 			if !testingMode {
-				if err := shiftfs.Unmount(m.Source); err != nil {
+
+				if err := shiftfs.Unmount(markpoint); err != nil {
 					return err
 				}
-				logrus.Debugf("unmarked shiftfs on %s", m.Source)
+
+				hasUuidMarkpoint := strings.HasPrefix(markpoint, sm.workDir)
+
+				if hasUuidMarkpoint {
+					if err := os.Remove(markpoint); err != nil {
+						return err
+					}
+				}
+
+				delete(sm.mpMap, markpoint)
 			}
-			delete(sm.mpMap, m.Source)
+
+			delete(sm.cntrMap, mntReqPath)
+			logrus.Debugf("unmarked shiftfs for %s at %s", mntReqPath, markpoint)
+
 		} else {
-			sm.mpMap[m.Source] = ids
+			sm.cntrMap[mntReqPath] = ids
 		}
 	}
 
@@ -134,14 +225,14 @@ func (sm *mgr) UnmarkAll() {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	for mp := range sm.mpMap {
+	for mp := range sm.cntrMap {
 		if !testingMode {
 			if err := shiftfs.Unmount(mp); err != nil {
 				logrus.Warnf("failed to unmark shiftfs on %s: %s", mp, err)
 			}
 			logrus.Debugf("unmarked shiftfs on %s", mp)
 		}
-		delete(sm.mpMap, mp)
+		delete(sm.cntrMap, mp)
 	}
 }
 
