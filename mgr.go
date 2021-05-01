@@ -155,7 +155,7 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		return nil, fmt.Errorf("failed to setup containerd vol mgr: %v", err)
 	}
 
-	shiftfsMgr, err := shiftfsMgr.New()
+	shiftfsMgr, err := shiftfsMgr.New(sysboxLibDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup shiftfs mgr: %v", err)
 	}
@@ -904,7 +904,7 @@ func (mgr *SysboxMgr) allocSubid(id string, size uint64) (uint32, uint32, error)
 	return info.uidMappings[0].HostID, info.gidMappings[0].HostID, nil
 }
 
-func (mgr *SysboxMgr) reqShiftfsMark(id string, mounts []configs.ShiftfsMount) error {
+func (mgr *SysboxMgr) reqShiftfsMark(id string, mounts []configs.ShiftfsMount) ([]configs.ShiftfsMount, error) {
 
 	// get container info
 	mgr.ctLock.Lock()
@@ -912,22 +912,23 @@ func (mgr *SysboxMgr) reqShiftfsMark(id string, mounts []configs.ShiftfsMount) e
 	mgr.ctLock.Unlock()
 
 	if !found {
-		return fmt.Errorf("container %s is not registered", formatter.ContainerID{id})
+		return nil, fmt.Errorf("container %s is not registered", formatter.ContainerID{id})
 	}
 
 	if len(info.shiftfsMarks) == 0 {
-		if err := mgr.shiftfsMgr.Mark(id, mounts); err != nil {
-			return err
+		markpoints, err := mgr.shiftfsMgr.Mark(id, mounts, true)
+		if err != nil {
+			return nil, err
 		}
 
-		info.shiftfsMarks = mounts
+		info.shiftfsMarks = markpoints
 
 		mgr.ctLock.Lock()
 		mgr.contTable[id] = info
 		mgr.ctLock.Unlock()
 	}
 
-	return nil
+	return info.shiftfsMarks, nil
 }
 
 func (mgr *SysboxMgr) reqFsState(id, rootfs string) ([]configs.FsEntry, error) {
