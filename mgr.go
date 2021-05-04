@@ -76,14 +76,14 @@ type mountInfo struct {
 }
 
 type containerInfo struct {
-	state        containerState
-	rootfs       string
-	mntPrepRev   []mntPrepRevInfo
-	mounts       []mountInfo
+	state         containerState
+	rootfs        string
+	mntPrepRev    []mntPrepRevInfo
+	reqMntInfos   []mountInfo
 	containerMnts []specs.Mount
-	uidInfo      uidInfo
-	shiftfsMarks []configs.ShiftfsMount
-	autoRemove   bool
+	uidInfo       uidInfo
+	shiftfsMarks  []configs.ShiftfsMount
+	autoRemove    bool
 }
 
 type SysboxMgr struct {
@@ -406,7 +406,7 @@ func (mgr *SysboxMgr) volSyncOut(id string, info containerInfo) error {
 	var err error
 	failedVols := []string{}
 
-	for _, mnt := range info.mounts {
+	for _, mnt := range info.reqMntInfos {
 		switch mnt.kind {
 		case ipcLib.MntVarLibDocker:
 			err = mgr.dockerVolMgr.SyncOut(id)
@@ -475,7 +475,7 @@ func (mgr *SysboxMgr) removeCont(id string) {
 	delete(mgr.contTable, id)
 	mgr.ctLock.Unlock()
 
-	for _, mnt := range info.mounts {
+	for _, mnt := range info.reqMntInfos {
 		var err error
 
 		switch mnt.kind {
@@ -526,7 +526,7 @@ func (mgr *SysboxMgr) reqMounts(id, rootfs string, uid, gid uint32, shiftUids bo
 
 	// setup dirs that will be bind-mounted into container
 	containerMnts := []specs.Mount{}
-	mntInfos := []mountInfo{}
+	reqMntInfos := []mountInfo{}
 
 	for _, req := range reqList {
 		var err error
@@ -552,7 +552,7 @@ func (mgr *SysboxMgr) reqMounts(id, rootfs string, uid, gid uint32, shiftUids bo
 				formatter.ContainerID{id}, err)
 		}
 
-		mntInfos = append(mntInfos, mountInfo{kind: req.Kind, mounts: m})
+		reqMntInfos = append(reqMntInfos, mountInfo{kind: req.Kind, mounts: m})
 		containerMnts = append(containerMnts, m...)
 	}
 
@@ -570,9 +570,9 @@ func (mgr *SysboxMgr) reqMounts(id, rootfs string, uid, gid uint32, shiftUids bo
 	// not). It merely lets processes check if a module is loaded.
 	containerMnts = append(containerMnts, mgr.libModMounts...)
 
-	if len(mntInfos) > 0 {
+	if len(reqMntInfos) > 0 {
 		info.rootfs = rootfs
-		info.mounts = mntInfos
+		info.reqMntInfos = reqMntInfos
 		info.containerMnts = containerMnts
 
 		mgr.ctLock.Lock()
@@ -876,7 +876,7 @@ func (mgr *SysboxMgr) pause(id string) error {
 	}
 
 	// Request all volume managers to sync back contents to the container's rootfs
-	for _, mnt := range info.mounts {
+	for _, mnt := range info.reqMntInfos {
 		var err error
 
 		switch mnt.kind {
