@@ -360,6 +360,7 @@ func (mgr *SysboxMgr) unregister(id string) error {
 
 		mgr.exclMntTable.remove(revInfo.path, id)
 	}
+	info.mntPrepRev = []mntPrepRevInfo{}
 
 	mgr.ctLock.Lock()
 	mgr.contTable[id] = info
