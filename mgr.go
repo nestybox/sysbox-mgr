@@ -80,6 +80,7 @@ type containerInfo struct {
 	rootfs       string
 	mntPrepRev   []mntPrepRevInfo
 	mounts       []mountInfo
+	containerMnts []specs.Mount
 	uidInfo      uidInfo
 	shiftfsMarks []configs.ShiftfsMount
 	autoRemove   bool
@@ -520,11 +521,7 @@ func (mgr *SysboxMgr) reqMounts(id, rootfs string, uid, gid uint32, shiftUids bo
 
 	// if this is a stopped container that is being re-started, reuse its prior mounts
 	if info.state == restarted {
-		mounts := []specs.Mount{}
-		for _, mntInfo := range info.mounts {
-			mounts = append(mounts, mntInfo.mounts...)
-		}
-		return mounts, nil
+		return info.containerMnts, nil
 	}
 
 	// setup dirs that will be bind-mounted into container
@@ -576,6 +573,7 @@ func (mgr *SysboxMgr) reqMounts(id, rootfs string, uid, gid uint32, shiftUids bo
 	if len(mntInfos) > 0 {
 		info.rootfs = rootfs
 		info.mounts = mntInfos
+		info.containerMnts = containerMnts
 
 		mgr.ctLock.Lock()
 		mgr.contTable[id] = info
