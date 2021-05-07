@@ -777,10 +777,6 @@ func (mgr *SysboxMgr) reqShiftfsMark(id string, rootfs string, mounts []configs.
 
 		// For the rootfs mount, don't create a separate markpoint
 		if _, err := mgr.shiftfsMgr.Mark(id, rootfsMnt, false); err != nil {
-
-			// XXX: DEBUG
-			logrus.Warnf("failed to set shiftfs marks for %s on rootfs %s: %v", id, rootfsMnt, err)
-
 			return nil, err
 		}
 
@@ -789,10 +785,6 @@ func (mgr *SysboxMgr) reqShiftfsMark(id string, rootfs string, mounts []configs.
 		// desirable to do so.
 		markpoints, err := mgr.shiftfsMgr.Mark(id, mounts, true)
 		if err != nil {
-
-			// XXX: DEBUG
-			logrus.Warnf("failed to set shiftfs marks for %s on %s: %v", id, mounts, err)
-
 			return nil, err
 		}
 

@@ -28,7 +28,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"sync"
 
 	uuid "github.com/google/uuid"
@@ -38,8 +37,6 @@ import (
 	"github.com/opencontainers/runc/libcontainer/configs"
 	"github.com/sirupsen/logrus"
 )
-
-var testingMode bool = false
 
 type mgr struct {
 	workDir string
@@ -102,7 +99,6 @@ func (sm *mgr) Mark(id string, mountReqs []configs.ShiftfsMount, createMarkpoint
 
 		// if mount request path is in the container map, add the container-id to the entry
 		ids, found := sm.cntrMap[mntReqPath]
-
 		if found {
 			ids = append(ids, id)
 			sm.cntrMap[mntReqPath] = ids
@@ -118,41 +114,38 @@ func (sm *mgr) Mark(id string, mountReqs []configs.ShiftfsMount, createMarkpoint
 			continue
 		}
 
-		if !testingMode {
-
-			// if shiftfs already marked, no action (some entity other than sysbox did the
-			// marking; we don't track that)
-			mounted, err := shiftfs.Mounted(mntReqPath)
-			if err != nil {
-				return nil, fmt.Errorf("error while checking for existing shiftfs mount on %s: %v", mntReqPath, err)
-			}
-
-			if mounted {
-				logrus.Debugf("skipped shiftfs mark on %s (already mounted)", mntReqPath)
-				continue
-			}
-
-			markpoint := mntReqPath
-
-			if createMarkpoint {
-				mntUuid := uuid.New().String()
-				markpoint = filepath.Join(sm.workDir, mntUuid)
-				if err := os.Mkdir(markpoint, 0700); err != nil {
-					return nil, err
-				}
-			}
-
-			if err := shiftfs.Mark(mntReqPath, markpoint); err != nil {
-				return nil, err
-			}
-
-			sm.mpMap[markpoint] = mntReqPath
-			markpoints = append(markpoints, configs.ShiftfsMount{Source: markpoint})
-
-			logrus.Debugf("marked shiftfs for %s at %s", mntReqPath, markpoint)
+		// if shiftfs already marked, no action (some entity other than sysbox did the
+		// marking; we don't track that)
+		mounted, err := shiftfs.Mounted(mntReqPath)
+		if err != nil {
+			return nil, fmt.Errorf("error while checking for existing shiftfs mount on %s: %v", mntReqPath, err)
+		}
+		if mounted {
+			markpoints = append(markpoints, mntReq)
+			logrus.Debugf("skipped shiftfs mark on %s (already mounted)", mntReqPath)
+			continue
 		}
 
+		markpoint := mntReqPath
+
+		if createMarkpoint {
+			mntUuid := uuid.New().String()
+			markpoint = filepath.Join(sm.workDir, mntUuid)
+			if err := os.Mkdir(markpoint, 0700); err != nil {
+				return nil, err
+			}
+		}
+
+		if err := shiftfs.Mark(mntReqPath, markpoint); err != nil {
+			return nil, err
+		}
+
+		sm.mpMap[markpoint] = mntReqPath
 		sm.cntrMap[mntReqPath] = []string{id}
+
+		markpoints = append(markpoints, configs.ShiftfsMount{Source: markpoint})
+
+		logrus.Debugf("marked shiftfs for %s at %s", mntReqPath, markpoint)
 	}
 
 	return markpoints, nil
@@ -193,24 +186,21 @@ func (sm *mgr) Unmark(id string, markpoints []configs.ShiftfsMount) error {
 		// we simply update the cntrMap entry.
 
 		if len(ids) == 0 {
-			if !testingMode {
-
-				if err := shiftfs.Unmount(markpoint); err != nil {
-					return err
-				}
-
-				hasUuidMarkpoint := strings.HasPrefix(markpoint, sm.workDir)
-
-				if hasUuidMarkpoint {
-					if err := os.Remove(markpoint); err != nil {
-						return err
-					}
-				}
-
-				delete(sm.mpMap, markpoint)
+			if err := shiftfs.Unmount(markpoint); err != nil {
+				return err
 			}
 
+			hasUuidMarkpoint := filepath.HasPrefix(markpoint, sm.workDir)
+
+			if hasUuidMarkpoint {
+				if err := os.Remove(markpoint); err != nil {
+					return err
+				}
+			}
+
+			delete(sm.mpMap, markpoint)
 			delete(sm.cntrMap, mntReqPath)
+
 			logrus.Debugf("unmarked shiftfs for %s at %s", mntReqPath, markpoint)
 
 		} else {
@@ -225,14 +215,21 @@ func (sm *mgr) UnmarkAll() {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	for mp := range sm.cntrMap {
-		if !testingMode {
-			if err := shiftfs.Unmount(mp); err != nil {
-				logrus.Warnf("failed to unmark shiftfs on %s: %s", mp, err)
-			}
-			logrus.Debugf("unmarked shiftfs on %s", mp)
+	for mp := range sm.mpMap {
+		if err := shiftfs.Unmount(mp); err != nil {
+			logrus.Warnf("failed to unmark shiftfs on %s: %s", mp, err)
 		}
-		delete(sm.cntrMap, mp)
+
+		hasUuidMarkpoint := filepath.HasPrefix(mp, sm.workDir)
+
+		if hasUuidMarkpoint {
+			if err := os.Remove(mp); err != nil {
+				logrus.Warnf("failed to remove %s: %s", mp, err)
+			}
+		}
+
+		logrus.Debugf("unmarked shiftfs on %s", mp)
+		delete(sm.mpMap, mp)
 	}
 }
 
