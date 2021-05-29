@@ -164,7 +164,7 @@ func TestShiftfsMgrBasic(t *testing.T) {
 		t.Errorf("error: markpoint mismatch: got %v, want %v", testOut, testIn)
 	}
 
-	// verify the shiftfsMgr cntrMap looks good
+	// verify the shiftfsMgr mreqCntrMap looks good
 	uniqueMnts := []string{"/a/b/c", "/d/e/f/g", "/x/y/z", "/i/h/j"}
 	cntrs := [][]string{
 		{"testCont1", "testCont2", "testCont3"},
@@ -174,9 +174,9 @@ func TestShiftfsMgrBasic(t *testing.T) {
 	}
 
 	for i, k := range uniqueMnts {
-		ids := mgr.cntrMap[k]
+		ids := mgr.mreqCntrMap[k]
 		if !utils.StringSliceEqual(ids, cntrs[i]) {
-			t.Errorf("error: cntrMap[%s] = %v; want cntrMap[%s] = %v", k, ids, k, cntrs[i])
+			t.Errorf("error: mreqCntrMap[%s] = %v; want mreqCntrMap[%s] = %v", k, ids, k, cntrs[i])
 		}
 	}
 
@@ -200,9 +200,9 @@ func TestShiftfsMgrBasic(t *testing.T) {
 		}
 	}
 
-	// verify the shiftfMgr cntrMap is clean now
-	if len(mgr.cntrMap) != 0 {
-		t.Errorf("error: cntrMap is not empty; it is %v", mgr.cntrMap)
+	// verify the shiftfMgr mreqCntrMap is clean now
+	if len(mgr.mreqCntrMap) != 0 {
+		t.Errorf("error: mreqCntrMap is not empty; it is %v", mgr.mreqCntrMap)
 	}
 
 	// verify work dir is clean
@@ -302,7 +302,7 @@ func TestShiftfsMgrCreateMarkpoint(t *testing.T) {
 		t.Errorf("error: markpoint length mismatch: got %d, want %d", len(testOut), len(testIn))
 	}
 
-	// Verify the shiftfsMgr cntrMap looks good
+	// Verify the shiftfsMgr mreqCntrMap looks good
 	uniqueMnts := []string{"/a/b/c", "/d/e/f/g", "/x/y/z", "/i/h/j"}
 	cntrs := [][]string{
 		{"testCont1", "testCont2", "testCont3"},
@@ -312,9 +312,9 @@ func TestShiftfsMgrCreateMarkpoint(t *testing.T) {
 	}
 
 	for i, k := range uniqueMnts {
-		ids := mgr.cntrMap[k]
+		ids := mgr.mreqCntrMap[k]
 		if !utils.StringSliceEqual(ids, cntrs[i]) {
-			t.Errorf("error: cntrMap[%s] = %v; want cntrMap[%s] = %v", k, ids, k, cntrs[i])
+			t.Errorf("error: mreqCntrMap[%s] = %v; want mreqCntrMap[%s] = %v", k, ids, k, cntrs[i])
 		}
 	}
 
@@ -332,12 +332,12 @@ func TestShiftfsMgrCreateMarkpoint(t *testing.T) {
 		}
 	}
 
-	if len(mgr.cntrMap) != 0 {
-		t.Errorf("error: cntrMap is not empty; it is %v", mgr.cntrMap)
+	if len(mgr.mreqCntrMap) != 0 {
+		t.Errorf("error: mreqCntrMap is not empty; it is %v", mgr.mreqCntrMap)
 	}
 
-	if len(mgr.mpMap) != 0 {
-		t.Errorf("error: mpMap is not empty; it is %v", mgr.mpMap)
+	if len(mgr.mpMreqMap) != 0 {
+		t.Errorf("error: mpMreqMap is not empty; it is %v", mgr.mpMreqMap)
 	}
 
 	// verify work dir is clean
