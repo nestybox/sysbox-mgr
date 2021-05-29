@@ -39,10 +39,10 @@ import (
 )
 
 type mgr struct {
-	workDir string
-	cntrMap map[string][]string // container map (maps shiftfs mount request paths to the associated container(s))
-	mpMap   map[string]string   // markpoint map (maps shiftfs markpoints to mount request paths)
-	mu      sync.Mutex
+	workDir     string
+	mreqCntrMap map[string][]string // Maps shiftfs mount request paths to the associated container(s) IDs.
+	mpMreqMap   map[string]string   // Maps each shiftfs markpoint path to it's corresponding mount request path.
+	mu          sync.Mutex
 }
 
 // Creates a new instance of the shiftfs manager
@@ -58,9 +58,9 @@ func New(sysboxLibDir string) (intf.ShiftfsMgr, error) {
 	}
 
 	return &mgr{
-		workDir: workDir,
-		cntrMap: make(map[string][]string),
-		mpMap:   make(map[string]string),
+		workDir:     workDir,
+		mreqCntrMap: make(map[string][]string),
+		mpMreqMap:   make(map[string]string),
 	}, nil
 
 }
@@ -97,17 +97,18 @@ func (sm *mgr) Mark(id string, mountReqs []configs.ShiftfsMount, createMarkpoint
 
 		mntReqPath := mntReq.Source
 
-		// if mount request path is in the container map, add the container-id to the entry
-		ids, found := sm.cntrMap[mntReqPath]
+		// if mount request path is in the mount-req-to-container map, add the container-id to the entry
+		ids, found := sm.mreqCntrMap[mntReqPath]
 		if found {
 			ids = append(ids, id)
-			sm.cntrMap[mntReqPath] = ids
+			sm.mreqCntrMap[mntReqPath] = ids
 
 			// Get the markpoint for the mount request path and add it to the list
 			// of markpoints we will return.
-			for mp, mrp := range sm.mpMap {
+			for mp, mrp := range sm.mpMreqMap {
 				if mrp == mntReqPath {
 					markpoints = append(markpoints, configs.ShiftfsMount{Source: mp})
+					break
 				}
 			}
 
@@ -140,8 +141,8 @@ func (sm *mgr) Mark(id string, mountReqs []configs.ShiftfsMount, createMarkpoint
 			return nil, err
 		}
 
-		sm.mpMap[markpoint] = mntReqPath
-		sm.cntrMap[mntReqPath] = []string{id}
+		sm.mpMreqMap[markpoint] = mntReqPath
+		sm.mreqCntrMap[mntReqPath] = []string{id}
 
 		markpoints = append(markpoints, configs.ShiftfsMount{Source: markpoint})
 
@@ -161,29 +162,29 @@ func (sm *mgr) Unmark(id string, markpoints []configs.ShiftfsMount) error {
 		// Lookup the mount request path for the given markpoint
 		// we may not find it in the markpoint map if we skipped it in Mark()
 		// (e.g., because it was already mounted by some other entity)
-		mntReqPath, found := sm.mpMap[markpoint]
+		mntReqPath, found := sm.mpMreqMap[markpoint]
 		if !found {
 			continue
 		}
 
 		// Lookup the containers associated with this mount request path
-		ids, ok := sm.cntrMap[mntReqPath]
+		ids, ok := sm.mreqCntrMap[mntReqPath]
 		if !ok {
 			logrus.Warnf("shiftfs unmark error: mount request path %s expected to be in container map but it's not.",
 				mntReqPath)
 			continue
 		}
 
-		// Remove matching container-id from cntrMap entry
+		// Remove matching container-id from mreqCntrMap entry
 		ids, err := removeID(ids, id)
 		if err != nil {
 			return fmt.Errorf("did not find container id %s in mount-point map entry for %s",
 				formatter.ContainerID{id}, mntReqPath)
 		}
 
-		// If after removal the cntrMap entry is empty it means there are no more containers
+		// If after removal the mreqCntrMap entry is empty it means there are no more containers
 		// associated with that mount, so we proceed to remove the shiftfs mark. Otherwise,
-		// we simply update the cntrMap entry.
+		// we simply update the mreqCntrMap entry.
 
 		if len(ids) == 0 {
 			if err := shiftfs.Unmount(markpoint); err != nil {
@@ -198,13 +199,13 @@ func (sm *mgr) Unmark(id string, markpoints []configs.ShiftfsMount) error {
 				}
 			}
 
-			delete(sm.mpMap, markpoint)
-			delete(sm.cntrMap, mntReqPath)
+			delete(sm.mpMreqMap, markpoint)
+			delete(sm.mreqCntrMap, mntReqPath)
 
 			logrus.Debugf("unmarked shiftfs for %s at %s", mntReqPath, markpoint)
 
 		} else {
-			sm.cntrMap[mntReqPath] = ids
+			sm.mreqCntrMap[mntReqPath] = ids
 		}
 	}
 
@@ -215,7 +216,7 @@ func (sm *mgr) UnmarkAll() {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	for mp := range sm.mpMap {
+	for mp := range sm.mpMreqMap {
 		if err := shiftfs.Unmount(mp); err != nil {
 			logrus.Warnf("failed to unmark shiftfs on %s: %s", mp, err)
 		}
@@ -229,7 +230,7 @@ func (sm *mgr) UnmarkAll() {
 		}
 
 		logrus.Debugf("unmarked shiftfs on %s", mp)
-		delete(sm.mpMap, mp)
+		delete(sm.mpMreqMap, mp)
 	}
 }
 
