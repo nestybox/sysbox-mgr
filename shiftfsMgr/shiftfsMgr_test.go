@@ -24,6 +24,7 @@ import (
 
 	utils "github.com/nestybox/sysbox-libs/utils"
 	"github.com/nestybox/sysbox-runc/libsysbox/shiftfs"
+	"github.com/nestybox/sysbox-runc/libsysbox/sysbox"
 	"github.com/opencontainers/runc/libcontainer/configs"
 )
 
@@ -32,6 +33,13 @@ var sysboxLibDir string = "/var/lib/sysbox"
 type mountTest struct {
 	id     string
 	mounts []configs.ShiftfsMount
+}
+
+func hostSupportsShiftfs() bool {
+	if err := sysbox.KernelModSupported("shiftfs"); err == nil {
+		return true
+	}
+	return false
 }
 
 func setupTest() (string, error) {
@@ -87,6 +95,10 @@ func mountTestEqual(a, b []mountTest) bool {
 }
 
 func TestShiftfsMgrBasic(t *testing.T) {
+
+	if !hostSupportsShiftfs() {
+		t.Skip("skipping test (shiftfs not supported).")
+	}
 
 	tdir, err := setupTest()
 	if err != nil {
@@ -218,6 +230,10 @@ func TestShiftfsMgrBasic(t *testing.T) {
 }
 
 func TestShiftfsMgrCreateMarkpoint(t *testing.T) {
+
+	if !hostSupportsShiftfs() {
+		t.Skip("skipping test (shiftfs not supported).")
+	}
 
 	tdir, err := setupTest()
 	if err != nil {
@@ -354,6 +370,10 @@ func TestShiftfsMgrCreateMarkpoint(t *testing.T) {
 
 func TestShiftfsMgrMarkIgnore(t *testing.T) {
 
+	if !hostSupportsShiftfs() {
+		t.Skip("skipping test (shiftfs not supported).")
+	}
+
 	tdir, err := setupTest()
 	if err != nil {
 		t.Errorf("error: setupTest() failed: %s", err)
@@ -464,6 +484,10 @@ func TestShiftfsMgrMarkIgnore(t *testing.T) {
 }
 
 func TestShiftfsMgrUnmarkAll(t *testing.T) {
+
+	if !hostSupportsShiftfs() {
+		t.Skip("skipping test (shiftfs not supported).")
+	}
 
 	tdir, err := setupTest()
 	if err != nil {
