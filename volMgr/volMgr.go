@@ -307,13 +307,13 @@ func (m *vmgr) rsyncVol(src, dest string, uid, gid uint32, shiftUids bool, shift
 	srcDir := src + "/"
 
 	if usermap == "" && groupmap == "" {
-		cmd = exec.Command("rsync", "-rauqlH", "--no-specials", "--no-devices", "--delete", srcDir, dest)
+		cmd = exec.Command("rsync", "-rauqlH", "--no-devices", "--delete", srcDir, dest)
 	} else if usermap != "" && groupmap == "" {
-		cmd = exec.Command("rsync", "-rauqlH", "--no-specials", "--no-devices", "--delete", usermap, srcDir, dest)
+		cmd = exec.Command("rsync", "-rauqlH", "--no-devices", "--delete", usermap, srcDir, dest)
 	} else if usermap == "" && groupmap != "" {
-		cmd = exec.Command("rsync", "-rauqlH", "--no-specials", "--no-devices", "--delete", groupmap, srcDir, dest)
+		cmd = exec.Command("rsync", "-rauqlH", "--no-devices", "--delete", groupmap, srcDir, dest)
 	} else {
-		cmd = exec.Command("rsync", "-rauqlH", "--no-specials", "--no-devices", "--delete", usermap, groupmap, srcDir, dest)
+		cmd = exec.Command("rsync", "-rauqlH", "--no-devices", "--delete", usermap, groupmap, srcDir, dest)
 	}
 
 	cmd.Stdout = &output
