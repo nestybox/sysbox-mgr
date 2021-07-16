@@ -200,7 +200,7 @@ func getSubidLimits(file string) ([]uint64, error) {
 	// are 32-bit, even though login.defs(5) indicates it's above this value)
 	limits := []uint64{100000, 4294967295, 100000, 4294967295}
 
-	// check if these defaults are overriden by login.defs; if login.defs does not exist, move on.
+	// check if these defaults are overridden by login.defs; if login.defs does not exist, move on.
 	f, err := os.Open(file)
 	if err != nil {
 		return limits, nil
@@ -730,7 +730,7 @@ func mntSrcUidShiftNeeded(mntSrc string, uid, gid uint32) (bool, uint32, uint32,
 	mntSrcGid = st.Gid
 
 	// If the host uid assigned to the container is higher than the uid
-	// of the dir being mounted into the conatiner, then we perform uid
+	// of the dir being mounted into the container, then we perform uid
 	// shifting. Same for gid.
 	if uid > mntSrcUid && gid > mntSrcGid {
 		return true, mntSrcUid, mntSrcGid, nil
