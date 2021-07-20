@@ -302,7 +302,7 @@ func setupDockerVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
 	}
 
 	for name, magic := range unsupportedFs {
-		if statfs.Type == magic {
+		if int64(statfs.Type) == magic {
 			return nil, fmt.Errorf("host dir for docker vol manager (%s) can't be on %v", hostDir, name)
 		}
 	}
@@ -331,7 +331,7 @@ func setupKubeletVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
 	}
 
 	for name, magic := range unsupportedFs {
-		if statfs.Type == magic {
+		if int64(statfs.Type) == magic {
 			return nil, fmt.Errorf("host dir for kubelet vol manager (%s) can't be on %v", hostDir, name)
 		}
 	}
@@ -360,7 +360,7 @@ func setupK3sVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
 	}
 
 	for name, magic := range unsupportedFs {
-		if statfs.Type == magic {
+		if int64(statfs.Type) == magic {
 			return nil, fmt.Errorf("host dir for kubelet vol manager (%s) can't be on %v", hostDir, name)
 		}
 	}
@@ -390,7 +390,7 @@ func setupContainerdVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
 	}
 
 	for name, magic := range unsupportedFs {
-		if statfs.Type == magic {
+		if int64(statfs.Type) == magic {
 			return nil, fmt.Errorf("host dir for containerd vol manager (%s) can't be on %v", hostDir, name)
 		}
 	}
