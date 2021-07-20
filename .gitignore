@@ -1,4 +1,5 @@
-sysbox-mgr
+# Ignore build artifacts
+build
 
 # Ignore virtual-studio-code metadata
 .vscode
