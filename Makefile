@@ -43,15 +43,15 @@ endif
 
 .DEFAULT: sysbox-mgr
 
+sysbox-mgr: $(SYSMGR_BUILDDIR)/$(SYSMGR_TARGET)
+
 $(SYSMGR_BUILDDIR)/$(SYSMGR_TARGET): $(SYSMGR_SRC) $(SYSMGR_GRPC_SRC) $(LIBDOCKER_SRC)
 	$(GO_XCOMPILE) $(GO) build -ldflags ${LDFLAGS} -o $(SYSMGR_BUILDDIR)/sysbox-mgr
 
-sysbox-mgr: $(SYSMGR_BUILDDIR)/$(SYSMGR_TARGET)
+sysbox-mgr-debug: $(SYSMGR_BUILDDIR)/$(SYSMGR_DEBUG_TARGET)
 
 $(SYSMGR_BUILDDIR)/$(SYSMGR_DEBUG_TARGET): $(SYSMGR_SRC) $(SYSMGR_GRPC_SRC) $(LIBDOCKER_SRC)
 	$(GO_XCOMPILE) $(GO) build -gcflags="all=-N -l" -ldflags ${LDFLAGS} -o $(SYSMGR_BUILDDIR)/sysbox-mgr
-
-sysbox-mgr-debug: $(SYSMGR_BUILDDIR)/$(SYSMGR_DEBUG_TARGET)
 
 sysbox-mgr-static: $(SYSMGR_BUILDDIR)/$(SYSFS_STATIC_TARGET)
 
