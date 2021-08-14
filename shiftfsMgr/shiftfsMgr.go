@@ -53,7 +53,7 @@ func New(sysboxLibDir string) (intf.ShiftfsMgr, error) {
 
 	workDir := filepath.Join(sysboxLibDir, "shiftfs")
 
-	if err := os.MkdirAll(workDir, 0700); err != nil {
+	if err := os.MkdirAll(workDir, 0710); err != nil {
 		return nil, err
 	}
 
