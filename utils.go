@@ -409,9 +409,19 @@ func setupWorkDirs() error {
 	if err := os.MkdirAll(sysboxRunDir, 0700); err != nil {
 		return fmt.Errorf("failed to create %s: %s", sysboxRunDir, err)
 	}
-	if err := os.MkdirAll(sysboxLibDir, 0700); err != nil {
+
+	// SysboxLibDir requires slightly less stringent permissions to ensure
+	// that sysbox-runc is capable of operating in this path during container
+	// initialization. Also, note that even though SysboxLibDir is typically
+	// owned by 'root:root', here we are explicitly enforcing it to address
+	// (testing) scenarios where this may not be the case.
+	if err := os.MkdirAll(sysboxLibDir, 0710); err != nil {
 		return fmt.Errorf("failed to create %s: %s", sysboxLibDir, err)
 	}
+	if err := os.Chown(sysboxLibDir, int(0), int(0)); err != nil {
+		return fmt.Errorf("failed to chown %s: %s", sysboxLibDir, err)
+	}
+
 	return nil
 }
 
@@ -432,7 +442,7 @@ func cleanupWorkDirs() error {
 		}
 	}
 
-	// Remove the sysbox lib dir
+	// Remove the sysbox lib dir's content.
 	if _, err := os.Stat(sysboxLibDir); err == nil {
 		if err := removeDirContents(sysboxLibDir); err != nil {
 			return err
