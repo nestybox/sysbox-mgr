@@ -442,28 +442,11 @@ func cleanupWorkDirs() error {
 		}
 	}
 
-	// Remove the sysbox lib dir's content.
-	if _, err := os.Stat(sysboxLibDir); err == nil {
-		if err := removeDirContents(sysboxLibDir); err != nil {
-			return err
-		}
-	} else if !os.IsNotExist(err) {
-		return err
+	// Remove the sysbox lib dir
+	if err := os.RemoveAll(sysboxLibDir); err != nil {
+		logrus.Warnf("failed to cleanup %s: %v", sysboxLibDir, err)
 	}
 
-	return nil
-}
-
-func removeDirContents(path string) error {
-	dir, err := ioutil.ReadDir(path)
-	if err != nil {
-		return fmt.Errorf("ReadDir(%v) failed: %v", path, err)
-	}
-	for _, d := range dir {
-		if err := os.RemoveAll(filepath.Join(path, d.Name())); err != nil {
-			return fmt.Errorf("RemoveAll(%v) failed: %v", filepath.Join(path, d.Name()), err)
-		}
-	}
 	return nil
 }
 
