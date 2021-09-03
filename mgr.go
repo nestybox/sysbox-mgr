@@ -665,7 +665,7 @@ func (mgr *SysboxMgr) removeCont(id string) {
 		formatter.ContainerID{id})
 }
 
-func (mgr *SysboxMgr) reqMounts(id, rootfs string, uid, gid uint32, shiftUids bool, reqList []ipcLib.MountReqInfo) ([]specs.Mount, error) {
+func (mgr *SysboxMgr) reqMounts(id, rootfs string, uid, gid uint32, reqList []ipcLib.MountReqInfo) ([]specs.Mount, error) {
 
 	// get container info
 	mgr.ctLock.Lock()
@@ -693,16 +693,16 @@ func (mgr *SysboxMgr) reqMounts(id, rootfs string, uid, gid uint32, shiftUids bo
 		switch req.Kind {
 
 		case ipcLib.MntVarLibDocker:
-			m, err = mgr.dockerVolMgr.CreateVol(id, rootfs, req.Dest, uid, gid, shiftUids, 0700)
+			m, err = mgr.dockerVolMgr.CreateVol(id, rootfs, req.Dest, uid, gid, req.ShiftUids, 0700)
 
 		case ipcLib.MntVarLibKubelet:
-			m, err = mgr.kubeletVolMgr.CreateVol(id, rootfs, req.Dest, uid, gid, shiftUids, 0755)
+			m, err = mgr.kubeletVolMgr.CreateVol(id, rootfs, req.Dest, uid, gid, req.ShiftUids, 0755)
 
 		case ipcLib.MntVarLibK3s:
-			m, err = mgr.k3sVolMgr.CreateVol(id, rootfs, req.Dest, uid, gid, shiftUids, 0755)
+			m, err = mgr.k3sVolMgr.CreateVol(id, rootfs, req.Dest, uid, gid, req.ShiftUids, 0755)
 
 		case ipcLib.MntVarLibContainerdOvfs:
-			m, err = mgr.containerdVolMgr.CreateVol(id, rootfs, req.Dest, uid, gid, shiftUids, 0700)
+			m, err = mgr.containerdVolMgr.CreateVol(id, rootfs, req.Dest, uid, gid, req.ShiftUids, 0700)
 
 		default:
 			err = fmt.Errorf("invalid mount request type: %s", req.Kind)
