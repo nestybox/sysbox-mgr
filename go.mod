@@ -3,6 +3,7 @@ module github.com/nestybox/sysbox-mgr
 go 1.13
 
 require (
+	github.com/containerd/containerd v1.4.11
 	github.com/coreos/go-systemd v0.0.0-20191104093116-d3cd4ed1dbcf
 	github.com/deckarep/golang-set v1.7.1
 	github.com/docker/docker v20.10.2+incompatible
