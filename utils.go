@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -778,6 +779,12 @@ func preFlightCheck() error {
 			return fmt.Errorf("%s is not installed on host.", prog)
 		}
 	}
+
+	// Required to allow dummy configfs folders to be exposed inside containers.
+	if err := exec.Command("modprobe", "configfs").Run(); err != nil {
+		return fmt.Errorf("failed to modprobe configfs: %s", err)
+	}
+
 	return nil
 }
 
