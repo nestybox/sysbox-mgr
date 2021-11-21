@@ -476,15 +476,13 @@ func (mgr *SysboxMgr) unregister(id string) error {
 	// revert mount prep actions
 	for _, revInfo := range info.mntPrepRev {
 		if revInfo.uidShifted {
-			logrus.Infof("reverting uid-shift on %s for %s", revInfo.path, formatter.ContainerID{id})
 
-			// revInfo.targetUid is guaranteed to be higher than revInfo.origUid
-			// (we checked in prepMounts())
+			uidOffset := int32(revInfo.origUid) - int32(revInfo.targetUid)
+			gidOffset := int32(revInfo.origGid) - int32(revInfo.targetGid)
 
-			uidOffset := revInfo.targetUid - revInfo.origUid
-			gidOffset := revInfo.targetGid - revInfo.origGid
+			logrus.Infof("reverting uid-shift on %s for %s (%d -> %d)", revInfo.path, formatter.ContainerID{id}, revInfo.targetUid, revInfo.origUid)
 
-			if err = idShiftUtils.ShiftIdsWithChown(revInfo.path, uidOffset, gidOffset, idShiftUtils.OffsetSub); err != nil {
+			if err = idShiftUtils.ShiftIdsWithChown(revInfo.path, uidOffset, gidOffset); err != nil {
 				logrus.Warnf("failed to revert uid-shift of mount source at %s: %s", revInfo.path, err)
 			}
 
@@ -837,15 +835,15 @@ func (mgr *SysboxMgr) prepMounts(id string, uid, gid uint32, prepList []ipcLib.M
 		}
 
 		if needUidShift {
-			logrus.Infof("shifting uids at %s for %s", src, formatter.ContainerID{id})
 
-			// uid is guaranteed to be higher than origUid (we checked in
-			// mntSrcUidShiftNeeded())
+			// Offset may be positive or negative
+			uidOffset := int32(uid) - int32(origUid)
+			gidOffset := int32(gid) - int32(origGid)
 
-			uidOffset := uid - origUid
-			gidOffset := gid - origGid
+			logrus.Infof("shifting uids at %s for %s (%d -> %d)", src, formatter.ContainerID{id}, origUid, uid)
 
-			if err = idShiftUtils.ShiftIdsWithChown(src, uidOffset, gidOffset, idShiftUtils.OffsetAdd); err != nil {
+			// TODO: for kernel >= 5.12, we need to do this using the new ID-mapped mount feature (faster, more reliable).
+			if err = idShiftUtils.ShiftIdsWithChown(src, uidOffset, gidOffset); err != nil {
 				return fmt.Errorf("failed to shift uids via chown for mount source at %s: %s", src, err)
 			}
 

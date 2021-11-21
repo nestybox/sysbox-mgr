@@ -33,13 +33,6 @@ import (
 	mapset "github.com/deckarep/golang-set"
 )
 
-type OffsetType int
-
-const (
-	OffsetAdd OffsetType = iota
-	OffsetSub
-)
-
 type aclType int
 
 const (
@@ -48,7 +41,7 @@ const (
 )
 
 // Shifts the ACL type user and group IDs by the given offset
-func shiftAclType(aclT aclType, path string, uidOffset, gidOffset uint32, offsetDir OffsetType) error {
+func shiftAclType(aclT aclType, path string, uidOffset, gidOffset int32) error {
 	var facl aclLib.ACL
 	var err error
 
@@ -77,13 +70,8 @@ func shiftAclType(aclT aclType, path string, uidOffset, gidOffset uint32, offset
 				continue
 			}
 
-			if offsetDir == OffsetAdd {
-				uid = uid + uint64(uidOffset)
-			} else {
-				uid = uid - uint64(uidOffset)
-			}
-
-			e.Qualifier = strconv.FormatUint(uid, 10)
+			targetUid := uint64(int32(uid) + uidOffset)
+			e.Qualifier = strconv.FormatUint(targetUid, 10)
 			aclShifted = true
 		}
 
@@ -95,13 +83,8 @@ func shiftAclType(aclT aclType, path string, uidOffset, gidOffset uint32, offset
 				continue
 			}
 
-			if offsetDir == OffsetAdd {
-				gid = gid + uint64(gidOffset)
-			} else {
-				gid = gid - uint64(gidOffset)
-			}
-
-			e.Qualifier = strconv.FormatUint(gid, 10)
+			targetGid := uint64(int32(gid) + gidOffset)
+			e.Qualifier = strconv.FormatUint(targetGid, 10)
 			aclShifted = true
 		}
 
@@ -129,17 +112,17 @@ func shiftAclType(aclT aclType, path string, uidOffset, gidOffset uint32, offset
 }
 
 // Shifts the ACL user and group IDs by the given offset, both for access and default ACLs
-func shiftAclIds(path string, isDir bool, uidOffset, gidOffset uint32, offsetDir OffsetType) error {
+func shiftAclIds(path string, isDir bool, uidOffset, gidOffset int32) error {
 
 	// Access list
-	err := shiftAclType(aclTypeAccess, path, uidOffset, gidOffset, offsetDir)
+	err := shiftAclType(aclTypeAccess, path, uidOffset, gidOffset)
 	if err != nil {
 		return err
 	}
 
 	// Default list (for directories only)
 	if isDir {
-		err = shiftAclType(aclTypeDefault, path, uidOffset, gidOffset, offsetDir)
+		err = shiftAclType(aclTypeDefault, path, uidOffset, gidOffset)
 		if err != nil {
 			return err
 		}
@@ -150,13 +133,12 @@ func shiftAclIds(path string, isDir bool, uidOffset, gidOffset uint32, offsetDir
 
 // "Shifts" ownership of user and group IDs on the given directory and files and directories
 // below it by the given offset, using chown.
-func ShiftIdsWithChown(baseDir string, uidOffset, gidOffset uint32, offsetDir OffsetType) error {
+func ShiftIdsWithChown(baseDir string, uidOffset, gidOffset int32) error {
 
 	hardLinks := []uint64{}
 
 	err := godirwalk.Walk(baseDir, &godirwalk.Options{
 		Callback: func(path string, de *godirwalk.Dirent) error {
-			var targetUid, targetGid uint32
 
 			// When doing the chown, we don't follow symlinks as we want to change
 			// the ownership of the symlinks themselves. We will chown the
@@ -184,13 +166,8 @@ func ShiftIdsWithChown(baseDir string, uidOffset, gidOffset uint32, offsetDir Of
 				hardLinks = append(hardLinks, st.Ino)
 			}
 
-			if offsetDir == OffsetAdd {
-				targetUid = st.Uid + uidOffset
-				targetGid = st.Gid + gidOffset
-			} else {
-				targetUid = st.Uid - uidOffset
-				targetGid = st.Gid - gidOffset
-			}
+			targetUid := int32(st.Uid) + uidOffset
+			targetGid := int32(st.Gid) + gidOffset
 
 			logrus.Debugf("chown %s from %d:%d to %d:%d", path, st.Uid, st.Gid, targetUid, targetGid)
 
@@ -203,7 +180,7 @@ func ShiftIdsWithChown(baseDir string, uidOffset, gidOffset uint32, offsetDir Of
 			// the Linux access control list (ACL) for the file
 
 			if fi.Mode()&os.ModeSymlink == 0 {
-				if err := shiftAclIds(path, fi.IsDir(), uidOffset, gidOffset, offsetDir); err != nil {
+				if err := shiftAclIds(path, fi.IsDir(), uidOffset, gidOffset); err != nil {
 					return fmt.Errorf("failed to shift ACL for %s: %s", path, err)
 				}
 			}
