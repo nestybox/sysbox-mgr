@@ -723,26 +723,11 @@ func mntSrcUidShiftNeeded(mntSrc string, uid, gid uint32) (bool, uint32, uint32,
 	mntSrcUid = st.Uid
 	mntSrcGid = st.Gid
 
-	// If the host uid assigned to the container is higher than the uid
-	// of the dir being mounted into the container, then we perform uid
+	// If the host uid assigned to the container's root user differs from the
+	// uid of the dir being mounted into the container, then we perform uid
 	// shifting. Same for gid.
-	if uid > mntSrcUid && gid > mntSrcGid {
+	if uid != mntSrcUid && gid != mntSrcGid {
 		return true, mntSrcUid, mntSrcGid, nil
-	}
-
-	// If the host uid assigned to the container is lower than the uid of the dir
-	// being mounted, we skip the uid shift. This is in fact an anomalous case
-	// because in general the host dir being mounted into the container should
-	// have host range uids (e.g., 0->65535) and these are usually lower than the
-	// uids assigned to the container (which come from the subuid ranges in
-	// /etc/subuid).
-	if uid < mntSrcUid || gid < mntSrcGid {
-
-		logrus.Infof("skipping uid shift on %s because its uid:gid (%d:%d) is "+
-			"> the container's assigned uid:gid (%d:%d)",
-			mntSrc, mntSrcUid, mntSrcGid, uid, gid)
-
-		return false, mntSrcUid, mntSrcGid, nil
 	}
 
 	// If the mount dir has same ownership as the container, check the subdirs
@@ -755,20 +740,15 @@ func mntSrcUidShiftNeeded(mntSrc string, uid, gid uint32) (bool, uint32, uint32,
 		return false, 0, 0, err
 	}
 
-	needChown := true
+	numNeedChown := 0
 	for _, fi := range dirFis {
 		st, _ := fi.Sys().(*syscall.Stat_t)
-
-		if uid <= st.Uid && gid <= st.Gid {
-
-			logrus.Infof("skipping uid shift on %s because subdir %s has uid:gid (%d:%d) which is "+
-				">= the container's assigned uid:gid (%d:%d)",
-				mntSrc, fi.Name(), st.Uid, st.Gid, uid, gid)
-
-			needChown = false
-			break
+		if uid != st.Uid || gid != st.Gid {
+			numNeedChown += 1
 		}
 	}
+
+	needChown := (numNeedChown == len(dirFis))
 
 	return needChown, mntSrcUid, mntSrcGid, nil
 }
