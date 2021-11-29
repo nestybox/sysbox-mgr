@@ -99,10 +99,10 @@ func TestShiftAclIds(t *testing.T) {
 
 	// ShiftAcls by subtracting offset
 
-	uidOffset := uint32(1000)
-	gidOffset := uint32(1000)
+	uidOffset := int32(-1000)
+	gidOffset := int32(-1000)
 
-	if err := shiftAclIds(testDir, true, uidOffset, gidOffset, OffsetSub); err != nil {
+	if err := shiftAclIds(testDir, true, uidOffset, gidOffset); err != nil {
 		t.Fatalf("shiftAclIds() failed: %s", err)
 	}
 
@@ -172,10 +172,10 @@ func TestShiftAclIds(t *testing.T) {
 
 	// ShiftAcls by adding offset (revert back to original value)
 
-	uidOffset = uint32(1000)
-	gidOffset = uint32(1000)
+	uidOffset = int32(1000)
+	gidOffset = int32(1000)
 
-	if err := shiftAclIds(testDir, true, uidOffset, gidOffset, OffsetAdd); err != nil {
+	if err := shiftAclIds(testDir, true, uidOffset, gidOffset); err != nil {
 		t.Fatalf("shiftAclIds() failed: %s", err)
 	}
 
