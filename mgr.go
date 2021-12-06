@@ -96,6 +96,7 @@ type SysboxMgr struct {
 	dockerVolMgr      intf.VolMgr
 	kubeletVolMgr     intf.VolMgr
 	k3sVolMgr         intf.VolMgr
+	k0sVolMgr         intf.VolMgr
 	containerdVolMgr  intf.VolMgr
 	shiftfsMgr        intf.ShiftfsMgr
 	hostDistro        string
@@ -156,6 +157,11 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		return nil, fmt.Errorf("failed to setup k3s vol mgr: %v", err)
 	}
 
+	k0sVolMgr, err := setupK0sVolMgr(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to setup k0s vol mgr: %v", err)
+	}
+
 	containerdVolMgr, err := setupContainerdVolMgr(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup containerd vol mgr: %v", err)
@@ -209,6 +215,7 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		dockerVolMgr:      dockerVolMgr,
 		kubeletVolMgr:     kubeletVolMgr,
 		k3sVolMgr:         k3sVolMgr,
+		k0sVolMgr:         k0sVolMgr,
 		containerdVolMgr:  containerdVolMgr,
 		shiftfsMgr:        shiftfsMgr,
 		hostDistro:        hostDistro,
@@ -282,6 +289,7 @@ func (mgr *SysboxMgr) Stop() error {
 	mgr.dockerVolMgr.SyncOutAndDestroyAll()
 	mgr.kubeletVolMgr.SyncOutAndDestroyAll()
 	mgr.k3sVolMgr.SyncOutAndDestroyAll()
+	mgr.k0sVolMgr.SyncOutAndDestroyAll()
 	mgr.containerdVolMgr.SyncOutAndDestroyAll()
 	mgr.shiftfsMgr.UnmarkAll()
 
@@ -565,6 +573,8 @@ func (mgr *SysboxMgr) volSyncOut(id string, info containerInfo) error {
 			err = mgr.kubeletVolMgr.SyncOut(id)
 		case ipcLib.MntVarLibK3s:
 			err = mgr.k3sVolMgr.SyncOut(id)
+		case ipcLib.MntVarLibK0s:
+			err = mgr.k0sVolMgr.SyncOut(id)
 		case ipcLib.MntVarLibContainerdOvfs:
 			err = mgr.containerdVolMgr.SyncOut(id)
 		}
@@ -642,6 +652,9 @@ func (mgr *SysboxMgr) removeCont(id string) {
 		case ipcLib.MntVarLibK3s:
 			err = mgr.k3sVolMgr.DestroyVol(id)
 
+		case ipcLib.MntVarLibK0s:
+			err = mgr.k0sVolMgr.DestroyVol(id)
+
 		case ipcLib.MntVarLibContainerdOvfs:
 			err = mgr.containerdVolMgr.DestroyVol(id)
 
@@ -698,6 +711,9 @@ func (mgr *SysboxMgr) reqMounts(id, rootfs string, uid, gid uint32, reqList []ip
 
 		case ipcLib.MntVarLibK3s:
 			m, err = mgr.k3sVolMgr.CreateVol(id, rootfs, req.Dest, uid, gid, req.ShiftUids, 0755)
+
+		case ipcLib.MntVarLibK0s:
+			m, err = mgr.k0sVolMgr.CreateVol(id, rootfs, req.Dest, uid, gid, req.ShiftUids, 0755)
 
 		case ipcLib.MntVarLibContainerdOvfs:
 			m, err = mgr.containerdVolMgr.CreateVol(id, rootfs, req.Dest, uid, gid, req.ShiftUids, 0700)
@@ -1049,6 +1065,9 @@ func (mgr *SysboxMgr) pause(id string) error {
 
 		case ipcLib.MntVarLibK3s:
 			err = mgr.k3sVolMgr.SyncOut(id)
+
+		case ipcLib.MntVarLibK0s:
+			err = mgr.k0sVolMgr.SyncOut(id)
 
 		case ipcLib.MntVarLibContainerdOvfs:
 			err = mgr.containerdVolMgr.SyncOut(id)
