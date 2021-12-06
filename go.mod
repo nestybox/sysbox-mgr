@@ -17,7 +17,7 @@ require (
 	github.com/nestybox/sysbox-libs/formatter v0.0.0-20210709231355-1ea69f2f6dbb
 	github.com/nestybox/sysbox-libs/utils v0.0.0-00010101000000-000000000000
 	github.com/nestybox/sysbox-runc v0.0.0-00010101000000-000000000000
-	github.com/opencontainers/runc v0.0.0-00010101000000-000000000000
+	github.com/opencontainers/runc v1.0.0-rc9.0.20210126000000-2be806d1391d
 	github.com/opencontainers/runtime-spec v1.0.3-0.20200929063507-e6143ca7d51d
 	github.com/pkg/profile v1.5.0
 	github.com/sirupsen/logrus v1.7.0
