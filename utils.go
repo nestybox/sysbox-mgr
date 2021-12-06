@@ -369,6 +369,35 @@ func setupK3sVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
 	return volMgr.New("k3sVolMgr", hostDir, true)
 }
 
+func setupK0sVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
+
+	var statfs syscall.Statfs_t
+
+	hostDir := filepath.Join(sysboxLibDir, "k0s")
+	if err := os.MkdirAll(hostDir, 0700); err != nil {
+		return nil, fmt.Errorf("failed to create %v: %v", hostDir, err)
+	}
+
+	// The host dir that is bind-mounted into the sys container's
+	// /var/lib/k0s directory can't be on the following filesystems,
+	// as k0s inside the sys container does not support them.
+	unsupportedFs := map[string]int64{
+		"shiftfs": SHIFTFS_MAGIC,
+	}
+
+	if err := syscall.Statfs(hostDir, &statfs); err != nil {
+		return nil, fmt.Errorf("failed to find filesystem info for %s", hostDir)
+	}
+
+	for name, magic := range unsupportedFs {
+		if int64(statfs.Type) == magic {
+			return nil, fmt.Errorf("host dir for kubelet vol manager (%s) can't be on %v", hostDir, name)
+		}
+	}
+
+	return volMgr.New("k0sVolMgr", hostDir, true)
+}
+
 func setupContainerdVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
 
 	var statfs syscall.Statfs_t
