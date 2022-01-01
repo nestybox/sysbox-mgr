@@ -38,7 +38,7 @@ import (
 	"sync"
 
 	"github.com/nestybox/sysbox-libs/formatter"
-	"github.com/nestybox/sysbox-mgr/idShiftUtils"
+	"github.com/nestybox/sysbox-libs/idShiftUtils"
 	"github.com/nestybox/sysbox-mgr/intf"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"

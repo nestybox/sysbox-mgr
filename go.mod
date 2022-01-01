@@ -13,7 +13,8 @@ require (
 	github.com/karrick/godirwalk v1.16.1
 	github.com/nestybox/sysbox-ipc v0.0.0-00010101000000-000000000000
 	github.com/nestybox/sysbox-libs/dockerUtils v0.0.0-00010101000000-000000000000
-	github.com/nestybox/sysbox-libs/formatter v0.0.0-20210709231355-1ea69f2f6dbb
+	github.com/nestybox/sysbox-libs/formatter v0.0.0-20211230192847-357e78e444bd
+	github.com/nestybox/sysbox-libs/idShiftUtils v0.0.0-00010101000000-000000000000
 	github.com/nestybox/sysbox-libs/utils v0.0.0-00010101000000-000000000000
 	github.com/nestybox/sysbox-runc v0.0.0-00010101000000-000000000000
 	github.com/opencontainers/runc v1.0.0-rc9.0.20210126000000-2be806d1391d
@@ -33,6 +34,8 @@ replace github.com/nestybox/sysbox-libs/utils => ../sysbox-libs/utils
 replace github.com/nestybox/sysbox-libs/formatter => ../sysbox-libs/formatter
 
 replace github.com/nestybox/sysbox-libs/dockerUtils => ../sysbox-libs/dockerUtils
+
+replace github.com/nestybox/sysbox-libs/idShiftUtils => ../sysbox-libs/idShiftUtils
 
 replace github.com/nestybox/sysbox-libs/libseccomp-golang => ../sysbox-libs/libseccomp-golang
 
