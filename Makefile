@@ -18,8 +18,8 @@ SYSMGR_SRC := $(shell find . 2>&1 | grep -E '.*\.(c|h|go)$$')
 SYSMGR_GRPC_DIR := ../sysbox-ipc/sysboxMgrGrpc
 SYSMGR_GRPC_SRC := $(shell find $(SYSMGR_GRPC_DIR) 2>&1 | grep -E '.*\.(c|h|go|proto)$$')
 
-LIBDOCKER_DIR := ../sysbox-libs/dockerUtils
-LIBDOCKER_SRC := $(shell find $(LIBDOCKER_DIR) 2>&1 | grep -E '.*\.(go)')
+SYSLIB_DIR := ../sysbox-libs
+SYSLIB_SRC := $(shell find $(SYSLIB_DIR) 2>&1 | grep -E '.*\.(c|h|go|proto)$$')
 
 COMMIT_NO := $(shell git rev-parse HEAD 2> /dev/null || true)
 COMMIT ?= $(if $(shell git status --porcelain --untracked-files=no),$(COMMIT_NO)-dirty,$(COMMIT_NO))
@@ -47,18 +47,18 @@ endif
 
 sysbox-mgr: $(SYSMGR_BUILDDIR)/$(SYSMGR_TARGET)
 
-$(SYSMGR_BUILDDIR)/$(SYSMGR_TARGET): $(SYSMGR_SRC) $(SYSMGR_GRPC_SRC) $(LIBDOCKER_SRC)
+$(SYSMGR_BUILDDIR)/$(SYSMGR_TARGET): $(SYSMGR_SRC) $(SYSMGR_GRPC_SRC) $(SYSLIB_SRC)
 	$(GO_XCOMPILE) $(GO) build -trimpath -ldflags "${LDFLAGS}" -o $(SYSMGR_BUILDDIR)/sysbox-mgr
 
 sysbox-mgr-debug: $(SYSMGR_BUILDDIR)/$(SYSMGR_DEBUG_TARGET)
 
-$(SYSMGR_BUILDDIR)/$(SYSMGR_DEBUG_TARGET): $(SYSMGR_SRC) $(SYSMGR_GRPC_SRC) $(LIBDOCKER_SRC)
+$(SYSMGR_BUILDDIR)/$(SYSMGR_DEBUG_TARGET): $(SYSMGR_SRC) $(SYSMGR_GRPC_SRC) $(SYSLIB_SRC)
 	$(GO_XCOMPILE) $(GO) build -trimpath -gcflags="all=-N -l" -ldflags "${LDFLAGS}" \
 		-o $(SYSMGR_BUILDDIR)/sysbox-mgr
 
 sysbox-mgr-static: $(SYSMGR_BUILDDIR)/$(SYSFS_STATIC_TARGET)
 
-$(SYSMGR_BUILDDIR)/$(SYSFS_STATIC_TARGET): $(SYSMGR_SRC) $(SYSMGR_GRPC_SRC) $(LIBDOCKER_SRC)
+$(SYSMGR_BUILDDIR)/$(SYSFS_STATIC_TARGET): $(SYSMGR_SRC) $(SYSMGR_GRPC_SRC) $(SYSLIB_SRC)
 	CGO_ENABLED=1 $(GO_XCOMPILE) $(GO) build -trimpath -tags "netgo osusergo" \
 		-installsuffix netgo -ldflags "-w -extldflags -static ${LDFLAGS}" \
 		-o $(SYSMGR_BUILDDIR)/sysbox-mgr
