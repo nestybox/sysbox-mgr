@@ -3,14 +3,10 @@ module github.com/nestybox/sysbox-mgr
 go 1.13
 
 require (
-	github.com/containerd/containerd v1.4.11
 	github.com/coreos/go-systemd v0.0.0-20191104093116-d3cd4ed1dbcf
 	github.com/deckarep/golang-set v1.7.1
 	github.com/fsnotify/fsnotify v1.4.7
 	github.com/google/uuid v1.1.2
-	github.com/joshlf/go-acl v0.0.0-20200411065538-eae00ae38531
-	github.com/joshlf/testutil v0.0.0-20170608050642-b5d8aa79d93d // indirect
-	github.com/karrick/godirwalk v1.16.1
 	github.com/nestybox/sysbox-ipc v0.0.0-00010101000000-000000000000
 	github.com/nestybox/sysbox-libs/dockerUtils v0.0.0-00010101000000-000000000000
 	github.com/nestybox/sysbox-libs/formatter v0.0.0-20211230192847-357e78e444bd
@@ -22,7 +18,7 @@ require (
 	github.com/pkg/profile v1.5.0
 	github.com/sirupsen/logrus v1.7.0
 	github.com/urfave/cli v1.22.1
-	golang.org/x/sys v0.0.0-20201107080550-4d91cf3a1aaf
+	golang.org/x/sys v0.0.0-20211216021012-1d35b9e2eb4e
 )
 
 replace github.com/nestybox/sysbox-ipc => ../sysbox-ipc
