@@ -85,8 +85,9 @@ type containerInfo struct {
 }
 
 type mgrConfig struct {
-	aliasDns          bool
-	bindMountUidShift bool
+	aliasDns        bool
+	noShiftfs       bool
+	noIDMappedMount bool
 }
 
 type SysboxMgr struct {
@@ -205,20 +206,21 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 	}
 
 	mgrCfg := mgrConfig{
-		aliasDns:          ctx.GlobalBoolT("alias-dns"),
-		bindMountUidShift: ctx.GlobalBoolT("bind-mount-id-shift"),
+		aliasDns:        ctx.GlobalBoolT("alias-dns"),
+		noShiftfs:       ctx.GlobalBoolT("disable-shiftfs"),
+		noIDMappedMount: ctx.GlobalBoolT("disable-idmapped-mount"),
 	}
 
-	if mgrCfg.aliasDns {
-		logrus.Infof("Sys container DNS aliasing enabled.")
-	} else {
-		logrus.Infof("Sys container DNS aliasing disabled.")
+	if !mgrCfg.aliasDns {
+		logrus.Info("Sys container DNS aliasing disabled.")
 	}
 
-	if mgrCfg.bindMountUidShift {
-		logrus.Infof("Bind mount uid & gid shifting enabled.")
-	} else {
-		logrus.Infof("Bind mount uid & gid shifting disabled.")
+	if mgrCfg.noShiftfs {
+		logrus.Info("Shiftfs usage disabled.")
+	}
+
+	if mgrCfg.noIDMappedMount {
+		logrus.Info("ID-mapped-mount usage disabled.")
 	}
 
 	mgr := &SysboxMgr{
@@ -411,11 +413,12 @@ func (mgr *SysboxMgr) register(regInfo *ipcLib.RegistrationInfo) (*ipcLib.Contai
 	}
 
 	containerCfg := &ipcLib.ContainerConfig{
-		AliasDns:          mgr.mgrCfg.aliasDns,
-		BindMountUidShift: mgr.mgrCfg.bindMountUidShift,
-		Userns:            info.userns,
-		UidMappings:       info.uidMappings,
-		GidMappings:       info.gidMappings,
+		AliasDns:        mgr.mgrCfg.aliasDns,
+		NoShiftfs:       mgr.mgrCfg.noShiftfs,
+		NoIDMappedMount: mgr.mgrCfg.noIDMappedMount,
+		Userns:          info.userns,
+		UidMappings:     info.uidMappings,
+		GidMappings:     info.gidMappings,
 	}
 
 	return containerCfg, nil

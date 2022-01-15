@@ -94,9 +94,13 @@ func main() {
 			Value: "/var/lib/sysbox",
 			Usage: "root directory for sysbox data store",
 		},
-		cli.BoolTFlag{
-			Name:  "bind-mount-id-shift",
-			Usage: "When set to true, Sysbox performs user and group ID shifting (e.g., shiftfs mounts) on host directories bind-mounted to the system containers so that they appear with correct ownership inside the container (default = true)",
+		cli.BoolFlag{
+			Name:  "disable-shiftfs",
+			Usage: "Disables Sysbox's use of the kernel's shiftfs module; files may show with nobody:nogroup ownership inside the container meant for testing. (default = false)",
+		},
+		cli.BoolFlag{
+			Name:  "disable-idmapped-mount",
+			Usage: "Disables Sysbox's use of the kernel's ID-mapped-mount feature; files may show with nobody:nogroup ownership inside the container; meant for testing (default = false)",
 		},
 	}
 
