@@ -80,3 +80,25 @@ type ShiftfsMgr interface {
 	// Remove shiftfs marks associated with all containers (best effort, ignore errors)
 	UnmarkAll()
 }
+
+// The RootfsCloner interface defines the interface exposed by the sysbox-mgr rootfs cloner
+type RootfsCloner interface {
+
+	// Creates a clone of the container's rootfs; returns the path to the cloned rootfs.
+	CreateClone(id, origRootfs string) (string, error)
+
+	// Removes a rootfs clone for the given container
+	RemoveClone(id string) error
+
+	// Chowns (recursively) the clone rootfs by the given user and group ID offset
+	ChownClone(id string, uidOffset, gidOffset int32) error
+
+	// Undoes the actions of ChownClone()
+	RevertChown(id string) error
+
+	// Notifies rootfsCloner that container has been stopped (but not removed)
+	ContainerStopped(id string) error
+
+	// Performs cleanup (e.g., removes all clones, unmounts all mounts created by the cloner)
+	RemoveAll()
+}
