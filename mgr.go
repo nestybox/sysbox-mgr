@@ -1,5 +1,5 @@
 //
-// Copyright 2019-2020 Nestybox, Inc.
+// Copyright 2019-2022 Nestybox, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -32,6 +32,7 @@ import (
 	"github.com/nestybox/sysbox-libs/idShiftUtils"
 	libutils "github.com/nestybox/sysbox-libs/utils"
 	intf "github.com/nestybox/sysbox-mgr/intf"
+	"github.com/nestybox/sysbox-mgr/rootfsCloner"
 	"github.com/nestybox/sysbox-mgr/shiftfsMgr"
 	"github.com/opencontainers/runc/libcontainer/configs"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
@@ -82,6 +83,8 @@ type containerInfo struct {
 	uidMappings    []specs.LinuxIDMapping
 	gidMappings    []specs.LinuxIDMapping
 	subidAllocated bool
+	rootfsCloned   bool
+	origRootfs     string // if rootfs was cloned, this is the original rootfs
 }
 
 type mgrConfig struct {
@@ -102,6 +105,7 @@ type SysboxMgr struct {
 	buildkitVolMgr    intf.VolMgr
 	containerdVolMgr  intf.VolMgr
 	shiftfsMgr        intf.ShiftfsMgr
+	rootfsCloner      intf.RootfsCloner
 	hostDistro        string
 	hostKernelHdrPath string
 	linuxHeaderMounts []specs.Mount
@@ -185,6 +189,11 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		return nil, fmt.Errorf("failed to setup shiftfs mgr: %v", err)
 	}
 
+	rootfsCloner := rootfsCloner.New(sysboxLibDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to setup rootfs mgr: %v", err)
+	}
+
 	hostDistro, err := libutils.GetDistro()
 	if err != nil {
 		return nil, fmt.Errorf("failed to identify system's linux distribution: %v", err)
@@ -234,6 +243,7 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		buildkitVolMgr:    buildkitVolMgr,
 		containerdVolMgr:  containerdVolMgr,
 		shiftfsMgr:        shiftfsMgr,
+		rootfsCloner:      rootfsCloner,
 		hostDistro:        hostDistro,
 		hostKernelHdrPath: hostKernelHdrPath,
 		linuxHeaderMounts: linuxHeaderMounts,
@@ -246,15 +256,18 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 	}
 
 	cb := &grpc.ServerCallbacks{
-		Register:       mgr.register,
-		Update:         mgr.update,
-		Unregister:     mgr.unregister,
-		SubidAlloc:     mgr.allocSubid,
-		ReqMounts:      mgr.reqMounts,
-		PrepMounts:     mgr.prepMounts,
-		ReqShiftfsMark: mgr.reqShiftfsMark,
-		ReqFsState:     mgr.reqFsState,
-		Pause:          mgr.pause,
+		Register:                mgr.register,
+		Update:                  mgr.update,
+		Unregister:              mgr.unregister,
+		SubidAlloc:              mgr.allocSubid,
+		ReqMounts:               mgr.reqMounts,
+		PrepMounts:              mgr.prepMounts,
+		ReqShiftfsMark:          mgr.reqShiftfsMark,
+		ReqFsState:              mgr.reqFsState,
+		CloneRootfs:             mgr.cloneRootfs,
+		ChownClonedRootfs:       mgr.chownClonedRootfs,
+		RevertClonedRootfsChown: mgr.revertClonedRootfsChown,
+		Pause:                   mgr.pause,
 	}
 
 	mgr.grpcServer = grpc.NewServerStub(cb)
@@ -310,6 +323,7 @@ func (mgr *SysboxMgr) Stop() error {
 	mgr.buildkitVolMgr.SyncOutAndDestroyAll()
 	mgr.containerdVolMgr.SyncOutAndDestroyAll()
 	mgr.shiftfsMgr.UnmarkAll()
+	mgr.rootfsCloner.RemoveAll()
 
 	if err := cleanupWorkDirs(); err != nil {
 		logrus.Warnf("failed to cleanup work dirs: %v", err)
@@ -324,6 +338,7 @@ func (mgr *SysboxMgr) Stop() error {
 func (mgr *SysboxMgr) register(regInfo *ipcLib.RegistrationInfo) (*ipcLib.ContainerConfig, error) {
 
 	id := regInfo.Id
+	rootfs := regInfo.Rootfs
 	userns := regInfo.Userns
 	netns := regInfo.Netns
 	uidMappings := regInfo.UidMappings
@@ -347,6 +362,11 @@ func (mgr *SysboxMgr) register(regInfo *ipcLib.RegistrationInfo) (*ipcLib.Contai
 				formatter.ContainerID{id})
 		}
 		info.state = restarted
+	}
+
+	if !info.rootfsCloned {
+		info.rootfs = rootfs
+		info.origRootfs = rootfs
 	}
 
 	info.netns = netns
@@ -397,14 +417,14 @@ func (mgr *SysboxMgr) register(regInfo *ipcLib.RegistrationInfo) (*ipcLib.Contai
 	mgr.ctLock.Unlock()
 
 	if info.state == restarted {
-		// remove the container's rootfs watch
-		if info.rootfs != "" {
-			rootfs := sanitizeRootfs(id, info.rootfs)
-			mgr.rootfsWatcher.Remove(rootfs)
+		if info.origRootfs != "" {
+			// remove the container's rootfs watch
+			origRootfs := sanitizeRootfs(id, info.origRootfs)
+			mgr.rootfsWatcher.Remove(origRootfs)
 			mgr.rtLock.Lock()
-			delete(mgr.rootfsTable, rootfs)
+			delete(mgr.rootfsTable, origRootfs)
 			mgr.rtLock.Unlock()
-			logrus.Debugf("removed fs watch on %s", rootfs)
+			logrus.Debugf("removed fs watch on %s", origRootfs)
 		}
 
 		logrus.Infof("registered container %s", formatter.ContainerID{id})
@@ -551,29 +571,36 @@ func (mgr *SysboxMgr) unregister(id string) error {
 		}
 	}
 
+	// Notify rootfs cloner that container has stopped
+	if info.rootfsCloned {
+		if err := mgr.rootfsCloner.ContainerStopped(id); err != nil {
+			return err
+		}
+	}
+
 	// setup a rootfs watch (allows us to get notified when the container's rootfs is removed)
-	if info.rootfs != "" {
-		rootfs := sanitizeRootfs(id, info.rootfs)
+	if info.origRootfs != "" {
+		origRootfs := sanitizeRootfs(id, info.origRootfs)
 
 		mgr.rtLock.Lock()
-		mgr.rootfsTable[rootfs] = id
-		mgr.rootfsWatcher.Add(rootfs)
+		mgr.rootfsTable[origRootfs] = id
+		mgr.rootfsWatcher.Add(origRootfs)
 
-		// It may be the case that rootfs has been deleted by the time we tell the
-		// rootfsWatcher, which means the watcher won't catch the rootfs removal
-		// event. In this case, let's cancel the watch event and remove the
-		// sysbox-mgr state for the container.
+		// It may be the case that original rootfs has been deleted by the time we
+		// tell the rootfsWatcher, which means the watcher won't catch the rootfs
+		// removal event. In this case, let's cancel the watch event and remove
+		// the sysbox-mgr state for the container.
 
-		if _, err := os.Stat(rootfs); os.IsNotExist(err) {
-			delete(mgr.rootfsTable, rootfs)
-			mgr.rootfsWatcher.Remove(rootfs)
+		if _, err := os.Stat(origRootfs); os.IsNotExist(err) {
+			delete(mgr.rootfsTable, origRootfs)
+			mgr.rootfsWatcher.Remove(origRootfs)
 			mgr.rtLock.Unlock()
 			mgr.removeCont(id)
 			return nil
 		}
 
 		mgr.rtLock.Unlock()
-		logrus.Debugf("added fs watch on %s", rootfs)
+		logrus.Debugf("added fs watch on %s", origRootfs)
 	}
 
 	logrus.Infof("unregistered container %s", formatter.ContainerID{id})
@@ -614,7 +641,7 @@ func (mgr *SysboxMgr) volSyncOut(id string, info containerInfo) error {
 	return nil
 }
 
-// rootfs monitor thread: checks for rootfs removal event and removes container.
+// rootfs monitor thread: checks for rootfs removal event and removes container state.
 func (mgr *SysboxMgr) rootfsMon() {
 	logrus.Debugf("rootfsMon starting ...")
 
@@ -701,11 +728,18 @@ func (mgr *SysboxMgr) removeCont(id string) {
 		}
 	}
 
+	if info.rootfsCloned {
+		if err := mgr.rootfsCloner.RemoveClone(id); err != nil {
+			logrus.Warnf("failed to unbind cloned rootfs for container %s: %s",
+				formatter.ContainerID{id}, err)
+		}
+	}
+
 	logrus.Infof("released resources for container %s",
 		formatter.ContainerID{id})
 }
 
-func (mgr *SysboxMgr) reqMounts(id, rootfs string, uid, gid uint32, reqList []ipcLib.MountReqInfo) ([]specs.Mount, error) {
+func (mgr *SysboxMgr) reqMounts(id string, uid, gid uint32, reqList []ipcLib.MountReqInfo) ([]specs.Mount, error) {
 
 	// get container info
 	mgr.ctLock.Lock()
@@ -725,6 +759,7 @@ func (mgr *SysboxMgr) reqMounts(id, rootfs string, uid, gid uint32, reqList []ip
 	// setup dirs that will be bind-mounted into container
 	containerMnts := []specs.Mount{}
 	reqMntInfos := []mountInfo{}
+	rootfs := info.rootfs
 
 	for _, req := range reqList {
 		var err error
@@ -781,7 +816,6 @@ func (mgr *SysboxMgr) reqMounts(id, rootfs string, uid, gid uint32, reqList []ip
 	containerMnts = append(containerMnts, mgr.libModMounts...)
 
 	if len(reqMntInfos) > 0 {
-		info.rootfs = rootfs
 		info.reqMntInfos = reqMntInfos
 		info.containerMnts = containerMnts
 
@@ -893,7 +927,6 @@ func (mgr *SysboxMgr) prepMounts(id string, uid, gid uint32, prepList []ipcLib.M
 
 			logrus.Infof("shifting uids at %s for %s (%d -> %d)", src, formatter.ContainerID{id}, origUid, uid)
 
-			// TODO: for kernel >= 5.12, we need to do this using the new ID-mapped mount feature (faster, more reliable).
 			if err = idShiftUtils.ShiftIdsWithChown(src, uidOffset, gidOffset); err != nil {
 				return fmt.Errorf("failed to shift uids via chown for mount source at %s: %s", src, err)
 			}
@@ -1160,4 +1193,67 @@ func (mgr *SysboxMgr) untrackNetns(id string, netnsInode uint64) error {
 	}
 
 	return nil
+}
+
+func (mgr *SysboxMgr) cloneRootfs(id string) (string, error) {
+
+	mgr.ctLock.Lock()
+	info, found := mgr.contTable[id]
+	mgr.ctLock.Unlock()
+
+	if !found {
+		return "", fmt.Errorf("container %s is not registered",
+			formatter.ContainerID{id})
+	}
+
+	rmgr := mgr.rootfsCloner
+
+	if !info.rootfsCloned {
+
+		clonedRootfs, err := rmgr.CreateClone(id, info.rootfs)
+		if err != nil {
+			return "", err
+		}
+
+		info.rootfs = clonedRootfs
+		info.rootfsCloned = true
+
+		mgr.ctLock.Lock()
+		mgr.contTable[id] = info
+		mgr.ctLock.Unlock()
+	}
+
+	return info.rootfs, nil
+}
+
+func (mgr *SysboxMgr) chownClonedRootfs(id string, uidOffset, gidOffset int32) error {
+
+	mgr.ctLock.Lock()
+	_, found := mgr.contTable[id]
+	mgr.ctLock.Unlock()
+
+	if !found {
+		return fmt.Errorf("container %s is not registered",
+			formatter.ContainerID{id})
+	}
+
+	rmgr := mgr.rootfsCloner
+
+	return rmgr.ChownClone(id, uidOffset, gidOffset)
+}
+
+func (mgr *SysboxMgr) revertClonedRootfsChown(id string) error {
+
+	mgr.ctLock.Lock()
+	_, found := mgr.contTable[id]
+	mgr.ctLock.Unlock()
+
+	if !found {
+		return fmt.Errorf("container %s is not registered",
+			formatter.ContainerID{id})
+	}
+
+	rmgr := mgr.rootfsCloner
+
+	return rmgr.RevertChown(id)
 }
