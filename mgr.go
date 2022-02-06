@@ -91,6 +91,7 @@ type mgrConfig struct {
 	aliasDns        bool
 	noShiftfs       bool
 	noIDMappedMount bool
+	noRootfsCloning bool
 }
 
 type SysboxMgr struct {
@@ -218,6 +219,7 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		aliasDns:        ctx.GlobalBoolT("alias-dns"),
 		noShiftfs:       ctx.GlobalBoolT("disable-shiftfs"),
 		noIDMappedMount: ctx.GlobalBoolT("disable-idmapped-mount"),
+		noRootfsCloning: ctx.GlobalBoolT("disable-rootfs-cloning"),
 	}
 
 	if !mgrCfg.aliasDns {
@@ -323,6 +325,11 @@ func (mgr *SysboxMgr) Stop() error {
 	mgr.buildkitVolMgr.SyncOutAndDestroyAll()
 	mgr.containerdVolMgr.SyncOutAndDestroyAll()
 	mgr.shiftfsMgr.UnmarkAll()
+
+	// Note: this will cause the container's cloned rootfs to be removed when
+	// Sysbox is stopped, thus loosing the container's runtime data. In the
+	// future we may want to make this persistent across Sysbox stop-restart
+	// events.
 	mgr.rootfsCloner.RemoveAll()
 
 	if err := cleanupWorkDirs(); err != nil {
@@ -436,6 +443,7 @@ func (mgr *SysboxMgr) register(regInfo *ipcLib.RegistrationInfo) (*ipcLib.Contai
 		AliasDns:        mgr.mgrCfg.aliasDns,
 		NoShiftfs:       mgr.mgrCfg.noShiftfs,
 		NoIDMappedMount: mgr.mgrCfg.noIDMappedMount,
+		NoRootfsCloning: mgr.mgrCfg.noRootfsCloning,
 		Userns:          info.userns,
 		UidMappings:     info.uidMappings,
 		GidMappings:     info.gidMappings,

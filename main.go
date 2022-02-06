@@ -102,6 +102,10 @@ func main() {
 			Name:  "disable-idmapped-mount",
 			Usage: "Disables Sysbox's use of the kernel's ID-mapped-mount feature; files may show with nobody:nogroup ownership inside the container; meant for testing (default = false)",
 		},
+		cli.BoolFlag{
+			Name:  "disable-rootfs-cloning",
+			Usage: "Disables Sysbox's rootfs cloning feature (used for fast chown of the container's rootfs in hosts without shiftfs); this option will significantly slow down container startup time in hosts without shiftfs.",
+		},
 	}
 
 	// show-version specialization.
