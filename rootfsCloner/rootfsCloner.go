@@ -23,7 +23,7 @@ import (
 	"sync"
 
 	"github.com/nestybox/sysbox-libs/formatter"
-	"github.com/opencontainers/runc/libcontainer/mount"
+	"github.com/nestybox/sysbox-runc/libcontainer/mount"
 	"github.com/sirupsen/logrus"
 )
 
