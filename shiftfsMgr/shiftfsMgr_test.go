@@ -24,7 +24,6 @@ import (
 
 	utils "github.com/nestybox/sysbox-libs/utils"
 	"github.com/nestybox/sysbox-runc/libsysbox/shiftfs"
-	"github.com/nestybox/sysbox-runc/libsysbox/sysbox"
 	"github.com/opencontainers/runc/libcontainer/configs"
 )
 
@@ -36,10 +35,11 @@ type mountTest struct {
 }
 
 func hostSupportsShiftfs() bool {
-	if err := sysbox.KernelModSupported("shiftfs"); err == nil {
-		return true
+	modSupported, err := utils.KernelModSupported("shiftfs")
+	if err != nil {
+		return false
 	}
-	return false
+	return modSupported
 }
 
 func setupTest() (string, error) {
