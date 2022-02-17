@@ -56,9 +56,9 @@ $(SYSMGR_BUILDDIR)/$(SYSMGR_DEBUG_TARGET): $(SYSMGR_SRC) $(SYSMGR_GRPC_SRC) $(SY
 	$(GO_XCOMPILE) $(GO) build -trimpath -gcflags="all=-N -l" -ldflags "${LDFLAGS}" \
 		-o $(SYSMGR_BUILDDIR)/sysbox-mgr
 
-sysbox-mgr-static: $(SYSMGR_BUILDDIR)/$(SYSFS_STATIC_TARGET)
+sysbox-mgr-static: $(SYSMGR_BUILDDIR)/$(SYSMGR_STATIC_TARGET)
 
-$(SYSMGR_BUILDDIR)/$(SYSFS_STATIC_TARGET): $(SYSMGR_SRC) $(SYSMGR_GRPC_SRC) $(SYSLIB_SRC)
+$(SYSMGR_BUILDDIR)/$(SYSMGR_STATIC_TARGET): $(SYSMGR_SRC) $(SYSMGR_GRPC_SRC) $(SYSLIB_SRC)
 	CGO_ENABLED=1 $(GO_XCOMPILE) $(GO) build -trimpath -tags "netgo osusergo" \
 		-installsuffix netgo -ldflags "-w -extldflags -static ${LDFLAGS}" \
 		-o $(SYSMGR_BUILDDIR)/sysbox-mgr
@@ -77,7 +77,7 @@ clean:
 	rm -f $(SYSMGR_BUILDDIR)/sysbox-mgr
 
 distclean: clean
-	rm -rf $(SYSFS_BUILDROOT)
+	rm -rf $(SYSMGR_BUILDROOT)
 
 # memoize allpackages, so that it's executed only once and only if used
 _allpackages = $(shell $(GO) list ./... | grep -v vendor)
