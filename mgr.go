@@ -88,10 +88,11 @@ type containerInfo struct {
 }
 
 type mgrConfig struct {
-	aliasDns        bool
-	noShiftfs       bool
-	noIDMappedMount bool
-	noRootfsCloning bool
+	aliasDns         bool
+	noShiftfs        bool
+	noIDMappedMount  bool
+	noRootfsCloning  bool
+	ignoreSysfsChown bool
 }
 
 type SysboxMgr struct {
@@ -216,10 +217,11 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 	}
 
 	mgrCfg := mgrConfig{
-		aliasDns:        ctx.GlobalBoolT("alias-dns"),
-		noShiftfs:       ctx.GlobalBoolT("disable-shiftfs"),
-		noIDMappedMount: ctx.GlobalBoolT("disable-idmapped-mount"),
-		noRootfsCloning: ctx.GlobalBoolT("disable-rootfs-cloning"),
+		aliasDns:         ctx.GlobalBoolT("alias-dns"),
+		noShiftfs:        ctx.GlobalBoolT("disable-shiftfs"),
+		noIDMappedMount:  ctx.GlobalBoolT("disable-idmapped-mount"),
+		noRootfsCloning:  ctx.GlobalBoolT("disable-rootfs-cloning"),
+		ignoreSysfsChown: ctx.GlobalBoolT("ignore-sysfs-chown"),
 	}
 
 	if !mgrCfg.aliasDns {

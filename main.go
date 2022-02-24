@@ -104,7 +104,11 @@ func main() {
 		},
 		cli.BoolFlag{
 			Name:  "disable-rootfs-cloning",
-			Usage: "Disables Sysbox's rootfs cloning feature (used for fast chown of the container's rootfs in hosts without shiftfs); this option will significantly slow down container startup time in hosts without shiftfs.",
+			Usage: "Disables Sysbox's rootfs cloning feature (used for fast chown of the container's rootfs in hosts without shiftfs); this option will significantly slow down container startup time in hosts without shiftfs (default = false)",
+		},
+		cli.BoolFlag{
+			Name:  "ignore-sysfs-chown",
+			Usage: "Ignore chown of /sys inside all Sysbox containers; may be needed to run a few apps that chown /sys inside the container (e.g,. rpm). Causes sysbox to trap the chown syscall inside the container, slowing it down (default = false).",
 		},
 	}
 
