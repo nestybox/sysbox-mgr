@@ -88,11 +88,12 @@ type containerInfo struct {
 }
 
 type mgrConfig struct {
-	aliasDns         bool
-	noShiftfs        bool
-	noIDMappedMount  bool
-	noRootfsCloning  bool
-	ignoreSysfsChown bool
+	aliasDns          bool
+	noShiftfs         bool
+	noIDMappedMount   bool
+	noRootfsCloning   bool
+	ignoreSysfsChown  bool
+	allowTrustedXattr bool
 }
 
 type SysboxMgr struct {
@@ -217,11 +218,12 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 	}
 
 	mgrCfg := mgrConfig{
-		aliasDns:         ctx.GlobalBoolT("alias-dns"),
-		noShiftfs:        ctx.GlobalBoolT("disable-shiftfs"),
-		noIDMappedMount:  ctx.GlobalBoolT("disable-idmapped-mount"),
-		noRootfsCloning:  ctx.GlobalBoolT("disable-rootfs-cloning"),
-		ignoreSysfsChown: ctx.GlobalBoolT("ignore-sysfs-chown"),
+		aliasDns:          ctx.GlobalBoolT("alias-dns"),
+		noShiftfs:         ctx.GlobalBool("disable-shiftfs"),
+		noIDMappedMount:   ctx.GlobalBool("disable-idmapped-mount"),
+		noRootfsCloning:   ctx.GlobalBool("disable-rootfs-cloning"),
+		ignoreSysfsChown:  ctx.GlobalBool("ignore-sysfs-chown"),
+		allowTrustedXattr: ctx.GlobalBoolT("allow-trusted-xattr"),
 	}
 
 	if !mgrCfg.aliasDns {
@@ -234,6 +236,14 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 
 	if mgrCfg.noIDMappedMount {
 		logrus.Info("ID-mapped-mount usage disabled.")
+	}
+
+	if mgrCfg.ignoreSysfsChown {
+		logrus.Info("Ignoring chown of /sys inside container.")
+	}
+
+	if mgrCfg.allowTrustedXattr {
+		logrus.Info("Allowing trusted.overlay.opaque inside container.")
 	}
 
 	mgr := &SysboxMgr{
@@ -442,13 +452,15 @@ func (mgr *SysboxMgr) register(regInfo *ipcLib.RegistrationInfo) (*ipcLib.Contai
 	}
 
 	containerCfg := &ipcLib.ContainerConfig{
-		AliasDns:        mgr.mgrCfg.aliasDns,
-		NoShiftfs:       mgr.mgrCfg.noShiftfs,
-		NoIDMappedMount: mgr.mgrCfg.noIDMappedMount,
-		NoRootfsCloning: mgr.mgrCfg.noRootfsCloning,
-		Userns:          info.userns,
-		UidMappings:     info.uidMappings,
-		GidMappings:     info.gidMappings,
+		AliasDns:          mgr.mgrCfg.aliasDns,
+		NoShiftfs:         mgr.mgrCfg.noShiftfs,
+		NoIDMappedMount:   mgr.mgrCfg.noIDMappedMount,
+		NoRootfsCloning:   mgr.mgrCfg.noRootfsCloning,
+		IgnoreSysfsChown:  mgr.mgrCfg.ignoreSysfsChown,
+		AllowTrustedXattr: mgr.mgrCfg.allowTrustedXattr,
+		Userns:            info.userns,
+		UidMappings:       info.uidMappings,
+		GidMappings:       info.gidMappings,
 	}
 
 	return containerCfg, nil
