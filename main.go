@@ -114,6 +114,10 @@ func main() {
 			Name:  "allow-trusted-xattr",
 			Usage: "Allows the overlayfs trusted.overlay.opaque xattr to be set inside all Sysbox containers; needed when running Docker inside Sysbox on hosts with kernel < 5.11. Causes Sysbox to trap the *xattr syscalls inside the container, slowing it down (default = true).",
 		},
+		cli.BoolFlag{
+			Name:  "honor-caps",
+			Usage: "Honor the container's process capabilities passed to Sysbox by the higher level container manager (e.g., Docker/containerd). Without this, Sysbox always gives the container's root user full capabilities and other users no capabilities to mimic a VM-like environment. Note that the container's capabilities are isolated from the host via the Linux user-namespace. (default = false).",
+		},
 	}
 
 	// show-version specialization.

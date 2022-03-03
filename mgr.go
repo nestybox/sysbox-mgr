@@ -94,6 +94,7 @@ type mgrConfig struct {
 	noRootfsCloning   bool
 	ignoreSysfsChown  bool
 	allowTrustedXattr bool
+	honorCaps         bool
 }
 
 type SysboxMgr struct {
@@ -224,6 +225,7 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		noRootfsCloning:   ctx.GlobalBool("disable-rootfs-cloning"),
 		ignoreSysfsChown:  ctx.GlobalBool("ignore-sysfs-chown"),
 		allowTrustedXattr: ctx.GlobalBoolT("allow-trusted-xattr"),
+		honorCaps:         ctx.GlobalBool("honor-caps"),
 	}
 
 	if !mgrCfg.aliasDns {
@@ -242,8 +244,12 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		logrus.Info("Ignoring chown of /sys inside container.")
 	}
 
-	if mgrCfg.allowTrustedXattr {
-		logrus.Info("Allowing trusted.overlay.opaque inside container.")
+	if !mgrCfg.allowTrustedXattr {
+		logrus.Info("Disallowing trusted.overlay.opaque inside container.")
+	}
+
+	if mgrCfg.honorCaps {
+		logrus.Info("Honoring process capabilities in OCI spec.")
 	}
 
 	mgr := &SysboxMgr{
@@ -458,6 +464,7 @@ func (mgr *SysboxMgr) register(regInfo *ipcLib.RegistrationInfo) (*ipcLib.Contai
 		NoRootfsCloning:   mgr.mgrCfg.noRootfsCloning,
 		IgnoreSysfsChown:  mgr.mgrCfg.ignoreSysfsChown,
 		AllowTrustedXattr: mgr.mgrCfg.allowTrustedXattr,
+		HonorCaps:         mgr.mgrCfg.honorCaps,
 		Userns:            info.userns,
 		UidMappings:       info.uidMappings,
 		GidMappings:       info.gidMappings,
