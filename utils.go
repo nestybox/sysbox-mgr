@@ -60,7 +60,7 @@ func newExclusiveMntTable() *exclusiveMntTable {
 	}
 }
 
-func (t *exclusiveMntTable) add(mntSrc, containerId string) {
+func (t *exclusiveMntTable) add(mntSrc, containerId string) bool {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 
@@ -69,6 +69,8 @@ func (t *exclusiveMntTable) add(mntSrc, containerId string) {
 		logrus.Warnf("mount source at %s should be mounted in one container only, but is already mounted in containers %v", mntSrc, cids)
 	}
 	t.mounts[mntSrc] = append(cids, containerId)
+
+	return found
 }
 
 func (t *exclusiveMntTable) remove(mntSrc, containerId string) {
