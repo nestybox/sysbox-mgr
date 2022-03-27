@@ -79,7 +79,12 @@ func (c *cloner) CreateClone(id, origRootfs string) (string, error) {
 	}
 
 	// Get the mount info for the orig rootfs
-	origRootfsMntInfo, err := mount.GetMountAtPid(uint32(os.Getpid()), origRootfs)
+	allMounts, err := mount.GetMounts()
+	if err != nil {
+		return "", err
+	}
+
+	origRootfsMntInfo, err := mount.GetMountAt(origRootfs, allMounts)
 	if err != nil {
 		return "", fmt.Errorf("failed to get mount info for mount at %s: %s", origRootfs, err)
 	}
