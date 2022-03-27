@@ -35,6 +35,7 @@ import (
 	intf "github.com/nestybox/sysbox-mgr/intf"
 	"github.com/nestybox/sysbox-runc/libsysbox/shiftfs"
 	"github.com/opencontainers/runc/libcontainer/configs"
+	"github.com/opencontainers/runc/libcontainer/mount"
 	"github.com/sirupsen/logrus"
 )
 
@@ -93,6 +94,11 @@ func (sm *mgr) Mark(id string, mountReqs []configs.ShiftfsMount, createMarkpoint
 
 	markpoints := []configs.ShiftfsMount{}
 
+	allMounts, err := mount.GetMounts()
+	if err != nil {
+		return nil, err
+	}
+
 	for _, mntReq := range mountReqs {
 
 		mntReqPath := mntReq.Source
@@ -117,7 +123,7 @@ func (sm *mgr) Mark(id string, mountReqs []configs.ShiftfsMount, createMarkpoint
 
 		// if shiftfs already marked, no action (some entity other than sysbox did the
 		// marking; we don't track that)
-		mounted, err := shiftfs.Mounted(mntReqPath)
+		mounted, err := shiftfs.Mounted(mntReqPath, allMounts)
 		if err != nil {
 			return nil, fmt.Errorf("error while checking for existing shiftfs mount on %s: %v", mntReqPath, err)
 		}
