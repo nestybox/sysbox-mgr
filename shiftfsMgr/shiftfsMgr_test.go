@@ -25,6 +25,7 @@ import (
 	utils "github.com/nestybox/sysbox-libs/utils"
 	"github.com/nestybox/sysbox-runc/libsysbox/shiftfs"
 	"github.com/opencontainers/runc/libcontainer/configs"
+	"github.com/opencontainers/runc/libcontainer/mount"
 )
 
 var sysboxLibDir string = "/var/lib/sysbox"
@@ -160,9 +161,14 @@ func TestShiftfsMgrBasic(t *testing.T) {
 	}
 
 	// Verify the shiftfs marks are present
+	allMounts, err := mount.GetMounts()
+	if err != nil {
+		t.Error(err)
+	}
+
 	for _, mt := range testOut {
 		for _, m := range mt.mounts {
-			marked, err := shiftfs.Mounted(m.Source)
+			marked, err := shiftfs.Mounted(m.Source, allMounts)
 			if err != nil {
 				t.Error(err)
 			}
@@ -200,9 +206,14 @@ func TestShiftfsMgrBasic(t *testing.T) {
 	}
 
 	// Verify the shiftfs marks were removed
+	allMounts, err = mount.GetMounts()
+	if err != nil {
+		t.Error(err)
+	}
+
 	for _, mt := range testOut {
 		for _, m := range mt.mounts {
-			marked, err := shiftfs.Mounted(m.Source)
+			marked, err := shiftfs.Mounted(m.Source, allMounts)
 			if err != nil {
 				t.Error(err)
 			}
@@ -296,9 +307,14 @@ func TestShiftfsMgrCreateMarkpoint(t *testing.T) {
 	}
 
 	// Verify the shiftfs marks are present
+	allMounts, err := mount.GetMounts()
+	if err != nil {
+		t.Error(err)
+	}
+
 	for _, mt := range testOut {
 		for _, m := range mt.mounts {
-			marked, err := shiftfs.Mounted(m.Source)
+			marked, err := shiftfs.Mounted(m.Source, allMounts)
 			if err != nil {
 				t.Error(err)
 			}
@@ -425,9 +441,14 @@ func TestShiftfsMgrMarkIgnore(t *testing.T) {
 	}
 
 	// Verify the shiftfs marks are remain (shiftfsMgr should not have touched them)
+	allMounts, err := mount.GetMounts()
+	if err != nil {
+		t.Error(err)
+	}
+
 	for _, mt := range testOut {
 		for _, m := range mt.mounts {
-			marked, err := shiftfs.Mounted(m.Source)
+			marked, err := shiftfs.Mounted(m.Source, allMounts)
 			if err != nil {
 				t.Error(err)
 			}
@@ -450,9 +471,14 @@ func TestShiftfsMgrMarkIgnore(t *testing.T) {
 	}
 
 	// Verify the shiftfs marks were not removed (since they were not added by shiftfsMgr)
+	allMounts, err = mount.GetMounts()
+	if err != nil {
+		t.Error(err)
+	}
+
 	for _, mt := range testOut {
 		for _, m := range mt.mounts {
-			marked, err := shiftfs.Mounted(m.Source)
+			marked, err := shiftfs.Mounted(m.Source, allMounts)
 			if err != nil {
 				t.Error(err)
 			}
