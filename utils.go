@@ -559,6 +559,29 @@ func sanitizeRootfs(id, rootfs string) string {
 	return rootfs
 }
 
+// createPidFile writes the sysbox pid to a file. If the file already exists (e.g.,
+// another sysbox instance is running), returns error.
+func createPidFile(pidFile string) error {
+
+	_, err := os.Stat(pidFile)
+	if err == nil {
+		return fmt.Errorf("%s exists", pidFile)
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+
+	pidStr := fmt.Sprintf("%d\n", os.Getpid())
+	if err := ioutil.WriteFile(pidFile, []byte(pidStr), 0400); err != nil {
+		return fmt.Errorf("failed to write sysbox pid to file %s: %s", pidFile, err)
+	}
+
+	return nil
+}
+
+func destroyPidFile(pidFile string) error {
+	return os.RemoveAll(pidFile)
+}
+
 // getLinuxHeaderMounts returns a list of read-only mounts of the host's linux
 // kernel headers.
 func getLinuxHeaderMounts(kernelHdrPath string) ([]specs.Mount, error) {

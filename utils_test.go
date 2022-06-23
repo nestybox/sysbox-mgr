@@ -350,6 +350,46 @@ some data
 	}
 }
 
+func TestSysboxPidFile(t *testing.T) {
+
+	testDir, err := ioutil.TempDir("", "sysbox-mgr-test")
+	if err != nil {
+		t.Errorf(err.Error())
+	}
+	defer os.RemoveAll(testDir)
+
+	pidFile := filepath.Join(testDir, "sysbox-mgr.pid")
+
+	// create sysbox pid file
+	if err := createPidFile(pidFile); err != nil {
+		t.Errorf("createPidFile() failed: %s", err)
+	}
+
+	// verify
+	_, err = os.Stat(pidFile)
+	if err != nil {
+		t.Errorf("failed to stat %s: %s", pidFile, err)
+	}
+
+	// create again (should fail)
+	if err := createPidFile(pidFile); err == nil {
+		t.Errorf("createPidFile() failed: expected error, got nil")
+	}
+
+	// destroy the pid file
+	if err := destroyPidFile(pidFile); err != nil {
+		t.Errorf("destroyPidFile() failed: %s", err)
+	}
+
+	// verify
+	_, err = os.Stat(pidFile)
+	if err == nil || !os.IsNotExist(err) {
+		t.Errorf("pid file %s was not removed", pidFile)
+		os.RemoveAll(pidFile)
+	}
+
+}
+
 func TestGetLibModMounts(t *testing.T) {
 
 	var utsname unix.Utsname

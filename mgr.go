@@ -19,7 +19,7 @@ package main
 import (
 	"fmt"
 	"os"
-	"path"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -146,6 +146,12 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 	err = setupWorkDirs()
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup the sysbox work dirs: %v", err)
+	}
+
+	pidFile := filepath.Join(sysboxRunDir, "sysmgr.pid")
+	err = createPidFile(pidFile)
+	if err != nil {
+		return nil, fmt.Errorf("refusing to start: %s", err)
 	}
 
 	subidAlloc, err := setupSubidAlloc(ctx)
@@ -349,6 +355,11 @@ func (mgr *SysboxMgr) Stop() error {
 	// future we may want to make this persistent across Sysbox stop-restart
 	// events.
 	mgr.rootfsCloner.RemoveAll()
+	
+	pidFile := filepath.Join(sysboxRunDir, "sysmgr.pid")
+	if err := destroyPidFile(pidFile); err != nil {
+		logrus.Warnf("failed to destroy sysbox pid file: %v", err)
+	}
 
 	if err := cleanupWorkDirs(); err != nil {
 		logrus.Warnf("failed to cleanup work dirs: %v", err)
