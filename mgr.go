@@ -96,6 +96,7 @@ type mgrConfig struct {
 	ignoreSysfsChown  bool
 	allowTrustedXattr bool
 	honorCaps         bool
+	syscontMode       bool
 }
 
 type SysboxMgr struct {
@@ -238,6 +239,7 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		ignoreSysfsChown:  ctx.GlobalBool("ignore-sysfs-chown"),
 		allowTrustedXattr: ctx.GlobalBoolT("allow-trusted-xattr"),
 		honorCaps:         ctx.GlobalBool("honor-caps"),
+		syscontMode:       ctx.GlobalBoolT("syscont-mode"),
 	}
 
 	if !mgrCfg.aliasDns {
@@ -261,7 +263,13 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 	}
 
 	if mgrCfg.honorCaps {
-		logrus.Info("Honoring process capabilities in OCI spec.")
+		logrus.Info("Honoring process capabilities in OCI spec (--honor-caps).")
+	}
+
+	if mgrCfg.syscontMode {
+		logrus.Info("Operating in system container mode.")
+	} else {
+		logrus.Info("Operating in regular container mode.")
 	}
 
 	mgr := &SysboxMgr{
@@ -482,6 +490,7 @@ func (mgr *SysboxMgr) register(regInfo *ipcLib.RegistrationInfo) (*ipcLib.Contai
 		IgnoreSysfsChown:  mgr.mgrCfg.ignoreSysfsChown,
 		AllowTrustedXattr: mgr.mgrCfg.allowTrustedXattr,
 		HonorCaps:         mgr.mgrCfg.honorCaps,
+		SyscontMode:       mgr.mgrCfg.syscontMode,
 		Userns:            info.userns,
 		UidMappings:       info.uidMappings,
 		GidMappings:       info.gidMappings,

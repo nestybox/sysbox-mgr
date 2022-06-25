@@ -116,7 +116,11 @@ func main() {
 		},
 		cli.BoolFlag{
 			Name:  "honor-caps",
-			Usage: "Honor the container's process capabilities passed to Sysbox by the higher level container manager (e.g., Docker/containerd). Without this, Sysbox always gives the container's root user full capabilities and other users no capabilities to mimic a VM-like environment. Note that the container's capabilities are isolated from the host via the Linux user-namespace. (default = false).",
+			Usage: "Honor the container's process capabilities passed to Sysbox by the higher level container manager (e.g., Docker/containerd). When set to false, Sysbox always gives the container's root user full capabilities and other users no capabilities to mimic a VM-like environment. Note that the container's capabilities are isolated from the host via the Linux user-namespace. (default = false).",
+		},
+		cli.BoolTFlag{
+			Name:  "syscont-mode",
+			Usage: "Causes Sysbox to run in \"system container\" mode. In this mode, it sets up the container to run system workloads (e.g., systemd, Docker, Kubernetes, etc.) seamlessly and securely. When set to false, Sysbox operates in \"regular container\" mode where it sets up the container strictly per its OCI spec (usually for microservices), with the exception of the Linux 'user' and 'cgroup' namespaces which Sysbox always enables for extra container isolation. (default = true)",
 		},
 	}
 
