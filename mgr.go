@@ -19,6 +19,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"sync"
 	"time"
@@ -149,9 +150,9 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 	}
 
 	pidFile := filepath.Join(sysboxRunDir, "sysmgr.pid")
-	err = createPidFile(pidFile)
+	err = libutils.CreatePidFile("sysbox-mgr", pidFile)
 	if err != nil {
-		return nil, fmt.Errorf("refusing to start: %s", err)
+		return nil, fmt.Errorf("failed to create sysmgr.pid file: %s", err)
 	}
 
 	subidAlloc, err := setupSubidAlloc(ctx)
@@ -356,13 +357,13 @@ func (mgr *SysboxMgr) Stop() error {
 	// events.
 	mgr.rootfsCloner.RemoveAll()
 	
-	pidFile := filepath.Join(sysboxRunDir, "sysmgr.pid")
-	if err := destroyPidFile(pidFile); err != nil {
-		logrus.Warnf("failed to destroy sysbox pid file: %v", err)
-	}
-
 	if err := cleanupWorkDirs(); err != nil {
 		logrus.Warnf("failed to cleanup work dirs: %v", err)
+	}
+
+	pidFile := filepath.Join(sysboxRunDir, "sysmgr.pid")
+	if err := libutils.DestroyPidFile(pidFile); err != nil {
+		logrus.Warnf("failed to destroy sysbox-mgr pid file: %v", err)
 	}
 
 	logrus.Info("Stopped.")
