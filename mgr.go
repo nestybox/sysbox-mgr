@@ -144,15 +144,20 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 	}
 	logrus.Infof("Sysbox data root: %s", sysboxLibDir)
 
-	err = setupWorkDirs()
+	err = setupRunDir()
 	if err != nil {
-		return nil, fmt.Errorf("failed to setup the sysbox work dirs: %v", err)
+		return nil, fmt.Errorf("failed to setup the sysbox run dir: %v", err)
 	}
 
 	pidFile := filepath.Join(sysboxRunDir, "sysmgr.pid")
 	err = libutils.CreatePidFile("sysbox-mgr", pidFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create sysmgr.pid file: %s", err)
+	}
+
+	err = setupWorkDirs()
+	if err != nil {
+		return nil, fmt.Errorf("failed to setup the sysbox work dirs: %v", err)
 	}
 
 	subidAlloc, err := setupSubidAlloc(ctx)
@@ -356,7 +361,7 @@ func (mgr *SysboxMgr) Stop() error {
 	// future we may want to make this persistent across Sysbox stop-restart
 	// events.
 	mgr.rootfsCloner.RemoveAll()
-	
+
 	if err := cleanupWorkDirs(); err != nil {
 		logrus.Warnf("failed to cleanup work dirs: %v", err)
 	}

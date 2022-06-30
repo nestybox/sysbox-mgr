@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -488,16 +487,21 @@ func setupContainerdVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
 	return volMgr.New("containerdVolMgr", hostDir, true)
 }
 
+func setupRunDir() error {
+
+	if err := os.MkdirAll(sysboxRunDir, 0700); err != nil {
+		return fmt.Errorf("failed to create %s: %s", sysboxRunDir, err)
+	}
+
+	return nil
+}
+
 func setupWorkDirs() error {
 
 	// Cleanup work dirs in case they were left unclean from a prior session (e.g., if
 	// sysbox was running and stopped with SIGKILL)
 	if err := cleanupWorkDirs(); err != nil {
 		return err
-	}
-
-	if err := os.MkdirAll(sysboxRunDir, 0700); err != nil {
-		return fmt.Errorf("failed to create %s: %s", sysboxRunDir, err)
 	}
 
 	// SysboxLibDir requires slightly less stringent permissions to ensure
@@ -847,11 +851,6 @@ func preFlightCheck() error {
 		if !libutils.CmdExists(prog) {
 			return fmt.Errorf("%s is not installed on host.", prog)
 		}
-	}
-
-	// Required to allow dummy configfs folders to be exposed inside containers.
-	if err := exec.Command("modprobe", "configfs").Run(); err != nil {
-		return fmt.Errorf("failed to modprobe configfs: %s", err)
 	}
 
 	return nil
