@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"os"
 	"path"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -39,11 +38,6 @@ import (
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
-)
-
-const (
-	sysboxRunDir        = "/run/sysbox"
-	sysboxLibDirDefault = "/var/lib/sysbox"
 )
 
 var sysboxLibDir string
@@ -134,6 +128,11 @@ type SysboxMgr struct {
 func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 	var err error
 
+	err = libutils.CheckPidFile("sysbox-mgr", sysboxMgrPidFile)
+	if err != nil {
+		return nil, err
+	}
+
 	err = preFlightCheck()
 	if err != nil {
 		return nil, fmt.Errorf("preflight check failed: %s", err)
@@ -148,12 +147,6 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 	err = setupRunDir()
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup the sysbox run dir: %v", err)
-	}
-
-	pidFile := filepath.Join(sysboxRunDir, "sysmgr.pid")
-	err = libutils.CreatePidFile("sysbox-mgr", pidFile)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create sysmgr.pid file: %s", err)
 	}
 
 	err = setupWorkDirs()
@@ -329,6 +322,11 @@ func (mgr *SysboxMgr) Start() error {
 
 	systemd.SdNotify(false, systemd.SdNotifyReady)
 
+	err = libutils.CreatePidFile("sysbox-mgr", sysboxMgrPidFile)
+	if err != nil {
+		return fmt.Errorf("failed to create sysmgr.pid file: %s", err)
+	}
+
 	logrus.Info("Ready ...")
 
 	// listen for grpc connections
@@ -374,8 +372,7 @@ func (mgr *SysboxMgr) Stop() error {
 		logrus.Warnf("failed to cleanup work dirs: %v", err)
 	}
 
-	pidFile := filepath.Join(sysboxRunDir, "sysmgr.pid")
-	if err := libutils.DestroyPidFile(pidFile); err != nil {
+	if err := libutils.DestroyPidFile(sysboxMgrPidFile); err != nil {
 		logrus.Warnf("failed to destroy sysbox-mgr pid file: %v", err)
 	}
 

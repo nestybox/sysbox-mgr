@@ -28,8 +28,12 @@ import (
 	"github.com/urfave/cli"
 )
 
-// Default subid range required by sysbox
-var subidRangeSize uint64 = 65536
+var (
+	sysboxRunDir        string = "/run/sysbox"
+	sysboxLibDirDefault string = "/var/lib/sysbox"
+	sysboxMgrPidFile    string = sysboxRunDir + "/sysmgr.pid"
+	subidRangeSize      uint64 = 65536
+)
 
 const (
 	usage = `Sysbox manager daemon
