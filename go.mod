@@ -5,7 +5,7 @@ go 1.13
 require (
 	github.com/coreos/go-systemd v0.0.0-20191104093116-d3cd4ed1dbcf
 	github.com/deckarep/golang-set v1.7.1
-	github.com/fsnotify/fsnotify v1.4.7
+	github.com/fsnotify/fsnotify v1.5.4
 	github.com/google/uuid v1.1.2
 	github.com/nestybox/sysbox-ipc v0.0.0-00010101000000-000000000000
 	github.com/nestybox/sysbox-libs/dockerUtils v0.0.0-00010101000000-000000000000
@@ -18,7 +18,7 @@ require (
 	github.com/pkg/profile v1.5.0
 	github.com/sirupsen/logrus v1.7.0
 	github.com/urfave/cli v1.22.1
-	golang.org/x/sys v0.0.0-20211216021012-1d35b9e2eb4e
+	golang.org/x/sys v0.0.0-20220412211240-33da011f77ad
 )
 
 replace github.com/nestybox/sysbox-ipc => ../sysbox-ipc

@@ -647,7 +647,7 @@ func (mgr *SysboxMgr) unregister(id string) error {
 			delete(mgr.rootfsTable, origRootfs)
 			mgr.rootfsWatcher.Remove(origRootfs)
 			mgr.rtLock.Unlock()
-			mgr.removeCont(id)
+			go mgr.removeCont(id)
 			return nil
 		}
 
@@ -700,8 +700,11 @@ func (mgr *SysboxMgr) rootfsMon() {
 	for {
 		select {
 		case event := <-mgr.rootfsWatcher.Events:
-			if event.Op&fsnotify.Remove == fsnotify.Remove {
-				rootfs := event.Name
+			rootfs := event.Name
+			_, err := os.Stat(rootfs)
+
+			if event.Op&fsnotify.Remove == fsnotify.Remove || os.IsNotExist(err) {
+				logrus.Debugf("rootfsMon: rm event on %s", rootfs)
 				mgr.rtLock.Lock()
 				id, found := mgr.rootfsTable[rootfs]
 				if !found {
@@ -711,11 +714,11 @@ func (mgr *SysboxMgr) rootfsMon() {
 					mgr.rtLock.Unlock()
 					break
 				}
-				logrus.Debugf("rootfsMon: rm on %s", rootfs)
 				delete(mgr.rootfsTable, rootfs)
 				mgr.rtLock.Unlock()
 				mgr.rootfsWatcher.Remove(rootfs)
-				mgr.removeCont(id)
+
+				go mgr.removeCont(id)
 			}
 
 		case err := <-mgr.rootfsWatcher.Errors:
