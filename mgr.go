@@ -94,6 +94,7 @@ type mgrConfig struct {
 	allowTrustedXattr       bool
 	honorCaps               bool
 	syscontMode             bool
+	fsuidMapFailOnErr       bool
 }
 
 type SysboxMgr struct {
@@ -267,6 +268,7 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		allowTrustedXattr:       ctx.GlobalBoolT("allow-trusted-xattr"),
 		honorCaps:               ctx.GlobalBool("honor-caps"),
 		syscontMode:             ctx.GlobalBoolT("syscont-mode"),
+		fsuidMapFailOnErr:       ctx.GlobalBool("fsuid-map-fail-on-error"),
 	}
 
 	if !mgrCfg.aliasDns {
@@ -308,6 +310,10 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		logrus.Info("Operating in system container mode.")
 	} else {
 		logrus.Info("Operating in regular container mode.")
+	}
+
+	if mgrCfg.fsuidMapFailOnErr {
+		logrus.Info("fsuid-map-fail-on-error = true.")
 	}
 
 	mgr := &SysboxMgr{
@@ -535,6 +541,7 @@ func (mgr *SysboxMgr) register(regInfo *ipcLib.RegistrationInfo) (*ipcLib.Contai
 		AllowTrustedXattr:       mgr.mgrCfg.allowTrustedXattr,
 		HonorCaps:               mgr.mgrCfg.honorCaps,
 		SyscontMode:             mgr.mgrCfg.syscontMode,
+		FsuidMapFailOnErr:       mgr.mgrCfg.fsuidMapFailOnErr,
 		Userns:                  info.userns,
 		UidMappings:             info.uidMappings,
 		GidMappings:             info.gidMappings,
