@@ -23,7 +23,7 @@ package intf
 import (
 	"os"
 
-	"github.com/opencontainers/runc/libcontainer/configs"
+	"github.com/nestybox/sysbox-libs/shiftfs"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 )
 
@@ -72,10 +72,10 @@ type ShiftfsMgr interface {
 	// Set shiftfs marks on the given paths; if createMarkpoint is true, create
 	// new moutpoint directories for each of the given paths. Returns a list of
 	// the paths where the shiftfs marks are set.
-	Mark(id string, mounts []configs.ShiftfsMount, createMarkpoint bool) ([]configs.ShiftfsMount, error)
+	Mark(id string, mounts []shiftfs.MountPoint, createMarkpoint bool) ([]shiftfs.MountPoint, error)
 
 	// Remove shiftfs marks associated with the given container
-	Unmark(id string, mount []configs.ShiftfsMount) error
+	Unmark(id string, mount []shiftfs.MountPoint) error
 
 	// Remove shiftfs marks associated with all containers (best effort, ignore errors)
 	UnmarkAll()

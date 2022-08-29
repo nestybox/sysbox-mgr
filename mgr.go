@@ -32,6 +32,7 @@ import (
 	"github.com/nestybox/sysbox-libs/idMap"
 	"github.com/nestybox/sysbox-libs/idShiftUtils"
 	"github.com/nestybox/sysbox-libs/linuxUtils"
+	"github.com/nestybox/sysbox-libs/shiftfs"
 	libutils "github.com/nestybox/sysbox-libs/utils"
 	intf "github.com/nestybox/sysbox-mgr/intf"
 	"github.com/nestybox/sysbox-mgr/rootfsCloner"
@@ -72,7 +73,7 @@ type containerInfo struct {
 	mntPrepRev             []mntPrepRevInfo
 	reqMntInfos            []mountInfo
 	containerMnts          []specs.Mount
-	shiftfsMarks           []configs.ShiftfsMount
+	shiftfsMarks           []shiftfs.MountPoint
 	autoRemove             bool
 	userns                 string
 	netns                  string
@@ -474,7 +475,7 @@ func (mgr *SysboxMgr) register(regInfo *ipcLib.RegistrationInfo) (*ipcLib.Contai
 		info = containerInfo{
 			state:        started,
 			mntPrepRev:   []mntPrepRevInfo{},
-			shiftfsMarks: []configs.ShiftfsMount{},
+			shiftfsMarks: []shiftfs.MountPoint{},
 		}
 	} else {
 		// re-started container
@@ -664,7 +665,7 @@ func (mgr *SysboxMgr) unregister(id string) error {
 			logrus.Warnf("failed to remove shiftfs marks for container %s: %s",
 				formatter.ContainerID{id}, err)
 		}
-		info.shiftfsMarks = []configs.ShiftfsMount{}
+		info.shiftfsMarks = []shiftfs.MountPoint{}
 	}
 
 	// If the rootfs is ID-mapped and on overlayfs, then chown the upper dir from
@@ -1203,7 +1204,7 @@ func (mgr *SysboxMgr) allocSubid(id string, size uint64) (uint32, uint32, error)
 	return info.uidMappings[0].HostID, info.gidMappings[0].HostID, nil
 }
 
-func (mgr *SysboxMgr) reqShiftfsMark(id string, mounts []configs.ShiftfsMount) ([]configs.ShiftfsMount, error) {
+func (mgr *SysboxMgr) reqShiftfsMark(id string, mounts []shiftfs.MountPoint) ([]shiftfs.MountPoint, error) {
 
 	// get container info
 	mgr.ctLock.Lock()

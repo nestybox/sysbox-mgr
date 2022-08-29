@@ -35,7 +35,6 @@ import (
 	"github.com/nestybox/sysbox-libs/mount"
 	"github.com/nestybox/sysbox-libs/shiftfs"
 	intf "github.com/nestybox/sysbox-mgr/intf"
-	"github.com/opencontainers/runc/libcontainer/configs"
 	"github.com/sirupsen/logrus"
 )
 
@@ -88,11 +87,11 @@ func New(sysboxLibDir string) (intf.ShiftfsMgr, error) {
 //
 // Returns the list of shiftfs markpoints.
 
-func (sm *mgr) Mark(id string, mountReqs []configs.ShiftfsMount, createMarkpoint bool) ([]configs.ShiftfsMount, error) {
+func (sm *mgr) Mark(id string, mountReqs []shiftfs.MountPoint, createMarkpoint bool) ([]shiftfs.MountPoint, error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	markpoints := []configs.ShiftfsMount{}
+	markpoints := []shiftfs.MountPoint{}
 
 	allMounts, err := mount.GetMounts()
 	if err != nil {
@@ -113,7 +112,7 @@ func (sm *mgr) Mark(id string, mountReqs []configs.ShiftfsMount, createMarkpoint
 			// of markpoints we will return.
 			for mp, mrp := range sm.mpMreqMap {
 				if mrp == mntReqPath {
-					markpoints = append(markpoints, configs.ShiftfsMount{Source: mp})
+					markpoints = append(markpoints, shiftfs.MountPoint{Source: mp})
 					break
 				}
 			}
@@ -150,7 +149,7 @@ func (sm *mgr) Mark(id string, mountReqs []configs.ShiftfsMount, createMarkpoint
 		sm.mpMreqMap[markpoint] = mntReqPath
 		sm.mreqCntrMap[mntReqPath] = []string{id}
 
-		markpoints = append(markpoints, configs.ShiftfsMount{Source: markpoint})
+		markpoints = append(markpoints, shiftfs.MountPoint{Source: markpoint})
 
 		logrus.Debugf("marked shiftfs for %s at %s", mntReqPath, markpoint)
 	}
@@ -158,7 +157,7 @@ func (sm *mgr) Mark(id string, mountReqs []configs.ShiftfsMount, createMarkpoint
 	return markpoints, nil
 }
 
-func (sm *mgr) Unmark(id string, markpoints []configs.ShiftfsMount) error {
+func (sm *mgr) Unmark(id string, markpoints []shiftfs.MountPoint) error {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
