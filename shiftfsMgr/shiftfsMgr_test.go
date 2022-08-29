@@ -26,14 +26,13 @@ import (
 	"github.com/nestybox/sysbox-libs/mount"
 	"github.com/nestybox/sysbox-libs/shiftfs"
 	utils "github.com/nestybox/sysbox-libs/utils"
-	"github.com/opencontainers/runc/libcontainer/configs"
 )
 
 var sysboxLibDir string = "/var/lib/sysbox"
 
 type mountTest struct {
 	id     string
-	mounts []configs.ShiftfsMount
+	mounts []shiftfs.MountPoint
 }
 
 func hostSupportsShiftfs() (bool, error) {
@@ -127,21 +126,21 @@ func TestShiftfsMgrBasic(t *testing.T) {
 	testIn := []mountTest{
 		{
 			id: "testCont1",
-			mounts: []configs.ShiftfsMount{
+			mounts: []shiftfs.MountPoint{
 				{"/a/b/c", false},
 				{"/d/e/f/g", false},
 			},
 		},
 		{
 			id: "testCont2",
-			mounts: []configs.ShiftfsMount{
+			mounts: []shiftfs.MountPoint{
 				{"/a/b/c", false},
 				{"/x/y/z", false},
 			},
 		},
 		{
 			id: "testCont3",
-			mounts: []configs.ShiftfsMount{
+			mounts: []shiftfs.MountPoint{
 				{"/i/h/j", false},
 				{"/x/y/z", false},
 				{"/a/b/c", false},
@@ -277,21 +276,21 @@ func TestShiftfsMgrCreateMarkpoint(t *testing.T) {
 	testIn := []mountTest{
 		{
 			id: "testCont1",
-			mounts: []configs.ShiftfsMount{
+			mounts: []shiftfs.MountPoint{
 				{"/a/b/c", false},
 				{"/d/e/f/g", false},
 			},
 		},
 		{
 			id: "testCont2",
-			mounts: []configs.ShiftfsMount{
+			mounts: []shiftfs.MountPoint{
 				{"/a/b/c", false},
 				{"/x/y/z", false},
 			},
 		},
 		{
 			id: "testCont3",
-			mounts: []configs.ShiftfsMount{
+			mounts: []shiftfs.MountPoint{
 				{"/i/h/j", false},
 				{"/x/y/z", false},
 				{"/a/b/c", false},
@@ -426,7 +425,7 @@ func TestShiftfsMgrMarkIgnore(t *testing.T) {
 	testIn := []mountTest{
 		{
 			id: "testCont1",
-			mounts: []configs.ShiftfsMount{
+			mounts: []shiftfs.MountPoint{
 				{"/a/b/c", false},
 				{"/d/e/f/g", false},
 			},
@@ -556,21 +555,21 @@ func TestShiftfsMgrUnmarkAll(t *testing.T) {
 	testIn := []mountTest{
 		{
 			id: "testCont1",
-			mounts: []configs.ShiftfsMount{
+			mounts: []shiftfs.MountPoint{
 				{"/a/b/c", false},
 				{"/d/e/f/g", false},
 			},
 		},
 		{
 			id: "testCont2",
-			mounts: []configs.ShiftfsMount{
+			mounts: []shiftfs.MountPoint{
 				{"/a/b/c", false},
 				{"/x/y/z", false},
 			},
 		},
 		{
 			id: "testCont3",
-			mounts: []configs.ShiftfsMount{
+			mounts: []shiftfs.MountPoint{
 				{"/i/h/j", false},
 				{"/x/y/z", false},
 				{"/a/b/c", false},
