@@ -103,6 +103,10 @@ func main() {
 			Usage: "Disables Sysbox's use of the kernel's shiftfs module (present in Ubuntu/Debian); files may show with nobody:nogroup ownership inside the container; meant for testing. (default = false)",
 		},
 		cli.BoolFlag{
+			Name:  "disable-shiftfs-on-fuse",
+			Usage: "Disables shiftfs on top of FUSE-based filesystems (which don't always work with shiftfs); FUSE-backed files mounted into the Sysbox container may show with nobody:nogroup ownership inside the container. (default = false)",
+		},
+		cli.BoolFlag{
 			Name:  "disable-idmapped-mount",
 			Usage: "Disables Sysbox's use of the kernel's ID-mapped-mount feature; files may show with nobody:nogroup ownership inside the container; meant for testing (default = false)",
 		},

@@ -101,6 +101,7 @@ type mgrConfig struct {
 	syscontMode             bool
 	fsuidMapFailOnErr       bool
 	noInnerImgPreload       bool
+	noShiftfsOnFuse         bool
 }
 
 type SysboxMgr struct {
@@ -282,6 +283,7 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		syscontMode:             ctx.GlobalBoolT("syscont-mode"),
 		fsuidMapFailOnErr:       ctx.GlobalBool("fsuid-map-fail-on-error"),
 		noInnerImgPreload:       !syncVolToRootfs,
+		noShiftfsOnFuse:         ctx.GlobalBool("disable-shiftfs-on-fuse"),
 	}
 
 	if !mgrCfg.aliasDns {
@@ -310,6 +312,10 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 
 	if mgrCfg.noRootfsCloning {
 		logrus.Info("Rootfs cloning disabled.")
+	}
+
+	if mgrCfg.noShiftfsOnFuse {
+		logrus.Info("Shiftfs on FUSE disabled.")
 	}
 
 	if mgrCfg.ignoreSysfsChown {
@@ -584,6 +590,7 @@ func (mgr *SysboxMgr) register(regInfo *ipcLib.RegistrationInfo) (*ipcLib.Contai
 		UidMappings:             info.uidMappings,
 		GidMappings:             info.gidMappings,
 		RootfsUidShiftType:      info.rootfsUidShiftType,
+		NoShiftfsOnFuse:         mgr.mgrCfg.noShiftfsOnFuse,
 	}
 
 	return containerCfg, nil
