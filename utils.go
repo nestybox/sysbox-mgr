@@ -573,7 +573,7 @@ func getLinuxHeaderMounts(kernelHdrPath string) ([]specs.Mount, error) {
 	var path = kernelHdrPath
 
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		logrus.Warnf("No kernel-headers found in host filesystem at %s. No headers will be mounted inside any of the containers.", kernelHdrPath)
+		logrus.Warnf("No kernel-headers found in host filesystem at %s. No headers will be mounted inside any of the containers.", path)
 		return []specs.Mount{}, nil
 	}
 
@@ -609,12 +609,16 @@ func getLibModMounts() ([]specs.Mount, error) {
 		return nil, err
 	}
 
+	mounts := []specs.Mount{}
 	path := filepath.Join("/lib/modules/", kernelRel)
-	if _, err := os.Stat(path); err != nil {
+
+	_, err = os.Stat(path)
+	if os.IsNotExist(err) {
+		logrus.Warnf("No lib-modules found in host filesystem at %s. lib-modules won't be mounted inside any of the containers.", path)
+		return mounts, nil
+	} else if err != nil {
 		return nil, err
 	}
-
-	mounts := []specs.Mount{}
 
 	// Do *not* follow symlinks as they normally point to the linux headers which we
 	// mount also (see getLinuxHeadersMount()).
