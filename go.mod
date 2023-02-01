@@ -10,39 +10,35 @@ require (
 	github.com/nestybox/sysbox-ipc v0.0.0-00010101000000-000000000000
 	github.com/nestybox/sysbox-libs/dockerUtils v0.0.0-00010101000000-000000000000
 	github.com/nestybox/sysbox-libs/formatter v0.0.0-20211230192847-357e78e444bd
+	github.com/nestybox/sysbox-libs/idMap v0.0.0-00010101000000-000000000000
 	github.com/nestybox/sysbox-libs/idShiftUtils v0.0.0-00010101000000-000000000000
-	github.com/nestybox/sysbox-libs/utils v0.0.0-00010101000000-000000000000
+	github.com/nestybox/sysbox-libs/linuxUtils v0.0.0-00010101000000-000000000000
 	github.com/nestybox/sysbox-libs/mount v0.0.0-00010101000000-000000000000
-	github.com/nestybox/sysbox-libs/overlayUtils v0.0.0-00010101000000-000000000000
+	github.com/nestybox/sysbox-libs/shiftfs v0.0.0-00010101000000-000000000000
+	github.com/nestybox/sysbox-libs/utils v0.0.0-00010101000000-000000000000
 	github.com/nestybox/sysbox-runc v0.0.0-00010101000000-000000000000
 	github.com/opencontainers/runc v1.0.0-rc9.0.20210126000000-2be806d1391d
 	github.com/opencontainers/runtime-spec v1.0.3-0.20200929063507-e6143ca7d51d
 	github.com/pkg/profile v1.5.0
-	github.com/sirupsen/logrus v1.7.0
+	github.com/sirupsen/logrus v1.9.0
 	github.com/urfave/cli v1.22.1
-	golang.org/x/sys v0.0.0-20211216021012-1d35b9e2eb4e
+	golang.org/x/sys v0.0.0-20220715151400-c0bba94af5f8
 )
 
-replace github.com/nestybox/sysbox-ipc => ../sysbox-ipc
-
-replace github.com/nestybox/sysbox-runc => ../sysbox-runc
-
-replace github.com/nestybox/sysbox-libs/utils => ../sysbox-libs/utils
-
-replace github.com/nestybox/sysbox-libs/formatter => ../sysbox-libs/formatter
-
-replace github.com/nestybox/sysbox-libs/dockerUtils => ../sysbox-libs/dockerUtils
-
-replace github.com/nestybox/sysbox-libs/idShiftUtils => ../sysbox-libs/idShiftUtils
-
-replace github.com/nestybox/sysbox-libs/overlayUtils => ../sysbox-libs/overlayUtils
-
-replace github.com/nestybox/sysbox-libs/mount => ../sysbox-libs/mount
-
-replace github.com/nestybox/sysbox-libs/libseccomp-golang => ../sysbox-libs/libseccomp-golang
-
-replace github.com/nestybox/sysbox-libs/capability => ../sysbox-libs/capability
-
-replace github.com/opencontainers/runc => ./../sysbox-runc
-
-replace github.com/godbus/dbus => github.com/godbus/dbus/v5 v5.0.3
+replace (
+	github.com/nestybox/sysbox-ipc => ../sysbox-ipc
+	github.com/nestybox/sysbox-runc => ../sysbox-runc
+	github.com/nestybox/sysbox-libs/utils => ../sysbox-libs/utils
+	github.com/nestybox/sysbox-libs/formatter => ../sysbox-libs/formatter
+	github.com/nestybox/sysbox-libs/dockerUtils => ../sysbox-libs/dockerUtils
+	github.com/nestybox/sysbox-libs/idShiftUtils => ../sysbox-libs/idShiftUtils
+	github.com/nestybox/sysbox-libs/overlayUtils => ../sysbox-libs/overlayUtils
+	github.com/nestybox/sysbox-libs/linuxUtils => ../sysbox-libs/linuxUtils
+	github.com/nestybox/sysbox-libs/shiftfs => ../sysbox-libs/shiftfs
+	github.com/nestybox/sysbox-libs/mount => ../sysbox-libs/mount
+	github.com/nestybox/sysbox-libs/libseccomp-golang => ../sysbox-libs/libseccomp-golang
+	github.com/nestybox/sysbox-libs/capability => ../sysbox-libs/capability
+	github.com/nestybox/sysbox-libs/idMap => ../sysbox-libs/idMap
+	github.com/opencontainers/runc => ./../sysbox-runc
+	github.com/godbus/dbus => github.com/godbus/dbus/v5 v5.0.3
+)

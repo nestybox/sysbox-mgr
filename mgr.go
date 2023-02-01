@@ -30,6 +30,7 @@ import (
 	"github.com/nestybox/sysbox-libs/dockerUtils"
 	"github.com/nestybox/sysbox-libs/formatter"
 	"github.com/nestybox/sysbox-libs/idShiftUtils"
+	"github.com/nestybox/sysbox-libs/linuxUtils"
 	libutils "github.com/nestybox/sysbox-libs/utils"
 	intf "github.com/nestybox/sysbox-mgr/intf"
 	"github.com/nestybox/sysbox-mgr/rootfsCloner"
@@ -205,12 +206,12 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		return nil, fmt.Errorf("failed to setup rootfs mgr: %v", err)
 	}
 
-	hostDistro, err := libutils.GetDistro()
+	hostDistro, err := linuxUtils.GetDistro()
 	if err != nil {
 		return nil, fmt.Errorf("failed to identify system's linux distribution: %v", err)
 	}
 
-	hostKernelHdrPath, err := libutils.GetLinuxHeaderPath(hostDistro)
+	hostKernelHdrPath, err := linuxUtils.GetLinuxHeaderPath(hostDistro)
 	if err != nil {
 		return nil, fmt.Errorf("failed to identify system's linux-header path: %v", err)
 	}
@@ -1152,7 +1153,7 @@ func (mgr *SysboxMgr) getKernelHeaderSoftlink(rootfs string) ([]configs.FsEntry,
 	// not returning any received error to ensure we complete container's
 	// registration in all scenarios (i.e. rootfs may not include a full linux
 	// env -- it may miss os-release file).
-	cntrDistro, err := libutils.GetDistroPath(rootfs)
+	cntrDistro, err := linuxUtils.GetDistroPath(rootfs)
 	if err != nil {
 		return nil, nil
 	}
@@ -1163,7 +1164,7 @@ func (mgr *SysboxMgr) getKernelHeaderSoftlink(rootfs string) ([]configs.FsEntry,
 	}
 
 	// Obtain container's kernel-header path.
-	cntrKernelPath, err := libutils.GetLinuxHeaderPath(cntrDistro)
+	cntrKernelPath, err := linuxUtils.GetLinuxHeaderPath(cntrDistro)
 	if err != nil {
 		return nil, fmt.Errorf("failed to identify kernel-header path of container's rootfs %s: %v",
 			rootfs, err)

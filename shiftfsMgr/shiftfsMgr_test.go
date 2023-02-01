@@ -23,8 +23,8 @@ import (
 	"testing"
 
 	"github.com/nestybox/sysbox-libs/mount"
+	"github.com/nestybox/sysbox-libs/shiftfs"
 	utils "github.com/nestybox/sysbox-libs/utils"
-	"github.com/nestybox/sysbox-runc/libsysbox/shiftfs"
 	"github.com/opencontainers/runc/libcontainer/configs"
 )
 
