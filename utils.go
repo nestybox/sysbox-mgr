@@ -30,10 +30,10 @@ import (
 	"syscall"
 
 	"github.com/nestybox/sysbox-libs/dockerUtils"
-	"github.com/nestybox/sysbox-libs/idShiftUtils"
+	"github.com/nestybox/sysbox-libs/idMap"
+	"github.com/nestybox/sysbox-libs/linuxUtils"
 	"github.com/nestybox/sysbox-libs/mount"
 	libutils "github.com/nestybox/sysbox-libs/utils"
-	utils "github.com/nestybox/sysbox-libs/utils"
 	intf "github.com/nestybox/sysbox-mgr/intf"
 	"github.com/nestybox/sysbox-mgr/subidAlloc"
 	"github.com/nestybox/sysbox-mgr/volMgr"
@@ -82,7 +82,7 @@ func (t *exclusiveMntTable) remove(mntSrc, containerId string) {
 		return
 	}
 
-	cids = utils.StringSliceRemove(cids, []string{containerId})
+	cids = libutils.StringSliceRemove(cids, []string{containerId})
 
 	if len(cids) > 0 {
 		t.mounts[mntSrc] = cids
@@ -602,7 +602,7 @@ func getLinuxHeaderMounts(kernelHdrPath string) ([]specs.Mount, error) {
 // getLibModMount returns a list of read-only mounts for the host's kernel modules dir (/lib/modules/<kernel-release>).
 func getLibModMounts() ([]specs.Mount, error) {
 
-	kernelRel, err := libutils.GetKernelRelease()
+	kernelRel, err := linuxUtils.GetKernelRelease()
 	if err != nil {
 		return nil, err
 	}
@@ -667,7 +667,7 @@ func createMountSpec(
 		// apply symlink filtering
 		for _, filt := range symlinkFilt {
 			filt = filepath.Clean(filt)
-			filtLinks := utils.StringSliceRemoveMatch(links, func(s string) bool {
+			filtLinks := libutils.StringSliceRemoveMatch(links, func(s string) bool {
 				if strings.HasPrefix(s, filt+"/") {
 					return false
 				}
@@ -874,11 +874,11 @@ func getIDMappingSupport(ctx *cli.Context) (bool, error) {
 		return false, nil
 	}
 
-	return libutils.KernelSupportsIDMappedMounts()
+	return linuxUtils.KernelSupportsIDMappedMounts()
 }
 
 func getIDMappingOvfsSupport() (bool, error) {
-	return idShiftUtils.IDMapMountSupportedOnOverlayfs(sysboxLibDir)
+	return idMap.IDMapMountSupportedOnOverlayfs(sysboxLibDir)
 }
 
 func getShiftfsSupport(ctx *cli.Context) (bool, error) {
@@ -888,5 +888,5 @@ func getShiftfsSupport(ctx *cli.Context) (bool, error) {
 		return false, nil
 	}
 
-	return libutils.KernelModSupported("shiftfs")
+	return linuxUtils.KernelModSupported("shiftfs")
 }
