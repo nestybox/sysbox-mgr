@@ -30,6 +30,25 @@ LDFLAGS := -X 'main.edition=${EDITION}' -X main.version=${VERSION} \
 		-X main.commitId=$(COMMIT) -X 'main.builtAt=$(BUILT_AT)' \
 		-X 'main.builtBy=$(BUILT_BY)'
 
+# idmapped mount is supported in kernels >= 5.12
+KERNEL_REL := $(shell uname -r)
+KERNEL_REL_MAJ := $(shell echo $(KERNEL_REL) | cut -d'.' -f1)
+KERNEL_REL_MIN := $(shell echo $(KERNEL_REL) | cut -d'.' -f2)
+
+ifeq ($(shell test $(KERNEL_REL_MAJ) -gt 5; echo $$?),0)
+	IDMAPPED_MNT := 1
+endif
+
+ifeq ($(shell test $(KERNEL_REL_MAJ) -eq 5; echo $$?),0)
+	ifeq ($(shell test $(KERNEL_REL_MIN) -ge 12; echo $$?),0)
+		IDMAPPED_MNT := 1
+	endif
+endif
+
+ifeq ($(IDMAPPED_MNT),1)
+	BUILDTAGS ?= idmapped_mnt
+endif
+
 # Set cross-compilation flags if applicable.
 ifneq ($(SYS_ARCH),$(TARGET_ARCH))
 	ifeq ($(TARGET_ARCH),armel)
@@ -48,18 +67,18 @@ endif
 sysbox-mgr: $(SYSMGR_BUILDDIR)/$(SYSMGR_TARGET)
 
 $(SYSMGR_BUILDDIR)/$(SYSMGR_TARGET): $(SYSMGR_SRC) $(SYSMGR_GRPC_SRC) $(SYSLIB_SRC)
-	$(GO_XCOMPILE) $(GO) build -trimpath -ldflags "${LDFLAGS}" -o $(SYSMGR_BUILDDIR)/sysbox-mgr
+	$(GO_XCOMPILE) $(GO) build -trimpath -tags "$(BUILDTAGS)" -ldflags "${LDFLAGS}" -o $(SYSMGR_BUILDDIR)/sysbox-mgr
 
 sysbox-mgr-debug: $(SYSMGR_BUILDDIR)/$(SYSMGR_DEBUG_TARGET)
 
 $(SYSMGR_BUILDDIR)/$(SYSMGR_DEBUG_TARGET): $(SYSMGR_SRC) $(SYSMGR_GRPC_SRC) $(SYSLIB_SRC)
-	$(GO_XCOMPILE) $(GO) build -trimpath -gcflags="all=-N -l" -ldflags "${LDFLAGS}" \
+	$(GO_XCOMPILE) $(GO) build -trimpath -tags "$(BUILDTAGS)" -gcflags="all=-N -l" -ldflags "${LDFLAGS}" \
 		-o $(SYSMGR_BUILDDIR)/sysbox-mgr
 
 sysbox-mgr-static: $(SYSMGR_BUILDDIR)/$(SYSMGR_STATIC_TARGET)
 
 $(SYSMGR_BUILDDIR)/$(SYSMGR_STATIC_TARGET): $(SYSMGR_SRC) $(SYSMGR_GRPC_SRC) $(SYSLIB_SRC)
-	CGO_ENABLED=1 $(GO_XCOMPILE) $(GO) build -trimpath -tags "netgo osusergo" \
+	CGO_ENABLED=1 $(GO_XCOMPILE) $(GO) build -trimpath -tags "$(BUILDTAGS) netgo osusergo" \
 		-installsuffix netgo -ldflags "-w -extldflags -static ${LDFLAGS}" \
 		-o $(SYSMGR_BUILDDIR)/sysbox-mgr
 
