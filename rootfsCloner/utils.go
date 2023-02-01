@@ -22,7 +22,7 @@ import (
 	"strings"
 
 	mapset "github.com/deckarep/golang-set"
-	"github.com/nestybox/sysbox-runc/libcontainer/mount"
+	"github.com/nestybox/sysbox-libs/mount"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 

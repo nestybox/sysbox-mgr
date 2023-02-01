@@ -32,10 +32,10 @@ import (
 
 	uuid "github.com/google/uuid"
 	"github.com/nestybox/sysbox-libs/formatter"
+	"github.com/nestybox/sysbox-libs/mount"
 	intf "github.com/nestybox/sysbox-mgr/intf"
 	"github.com/nestybox/sysbox-runc/libsysbox/shiftfs"
 	"github.com/opencontainers/runc/libcontainer/configs"
-	"github.com/opencontainers/runc/libcontainer/mount"
 	"github.com/sirupsen/logrus"
 )
 
