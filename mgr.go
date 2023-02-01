@@ -83,14 +83,15 @@ type containerInfo struct {
 }
 
 type mgrConfig struct {
-	aliasDns          bool
-	noShiftfs         bool
-	noIDMappedMount   bool
-	noRootfsCloning   bool
-	ignoreSysfsChown  bool
-	allowTrustedXattr bool
-	honorCaps         bool
-	syscontMode       bool
+	aliasDns                bool
+	useShiftfs              bool
+	useIDMapping            bool
+	useIDMappingOnOverlayfs bool
+	noRootfsCloning         bool
+	ignoreSysfsChown        bool
+	allowTrustedXattr       bool
+	honorCaps               bool
+	syscontMode             bool
 }
 
 type SysboxMgr struct {
@@ -224,27 +225,59 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		return nil, fmt.Errorf("failed to compute kernel-module mounts: %v", err)
 	}
 
+	useIDMapping, err := getIDMappingSupport(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check kernel ID-mapping support: %v", err)
+	}
+
+	useIDMappingOnOvfs := useIDMapping
+
+	if useIDMapping {
+		useIDMappingOnOvfs, err = getIDMappingOvfsSupport()
+		if err != nil {
+			return nil, fmt.Errorf("failed to check kernel ID-mapping-on-overlayfs support: %v", err)
+		}
+	}
+
+	useShiftfs, err := getShiftfsSupport(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check kernel ID shiftfs support: %v", err)
+	}
+
 	mgrCfg := mgrConfig{
-		aliasDns:          ctx.GlobalBoolT("alias-dns"),
-		noShiftfs:         ctx.GlobalBool("disable-shiftfs"),
-		noIDMappedMount:   ctx.GlobalBool("disable-idmapped-mount"),
-		noRootfsCloning:   ctx.GlobalBool("disable-rootfs-cloning"),
-		ignoreSysfsChown:  ctx.GlobalBool("ignore-sysfs-chown"),
-		allowTrustedXattr: ctx.GlobalBoolT("allow-trusted-xattr"),
-		honorCaps:         ctx.GlobalBool("honor-caps"),
-		syscontMode:       ctx.GlobalBoolT("syscont-mode"),
+		aliasDns:                ctx.GlobalBoolT("alias-dns"),
+		useShiftfs:              useShiftfs,
+		useIDMapping:            useIDMapping,
+		useIDMappingOnOverlayfs: useIDMappingOnOvfs,
+		noRootfsCloning:         ctx.GlobalBool("disable-rootfs-cloning"),
+		ignoreSysfsChown:        ctx.GlobalBool("ignore-sysfs-chown"),
+		allowTrustedXattr:       ctx.GlobalBoolT("allow-trusted-xattr"),
+		honorCaps:               ctx.GlobalBool("honor-caps"),
+		syscontMode:             ctx.GlobalBoolT("syscont-mode"),
 	}
 
 	if !mgrCfg.aliasDns {
 		logrus.Info("Sys container DNS aliasing disabled.")
 	}
 
-	if mgrCfg.noShiftfs {
-		logrus.Info("Shiftfs usage disabled.")
+	if !mgrCfg.useShiftfs {
+		logrus.Info("Shiftfs disabled or not supported.")
 	}
 
-	if mgrCfg.noIDMappedMount {
-		logrus.Info("ID-mapped-mount usage disabled.")
+	if mgrCfg.useIDMapping {
+		logrus.Info("ID-mapping supported by kernel.")
+
+		if mgrCfg.useIDMappingOnOverlayfs {
+			logrus.Info("ID-mapping on overlayfs supported by kernel.")
+		} else {
+			logrus.Info("ID-mapping on overlayfs not supported by kernel.")
+		}
+	} else {
+		logrus.Info("ID-mapping disabled or not supported.")
+	}
+
+	if mgrCfg.noRootfsCloning {
+		logrus.Info("Rootfs cloning disabled.")
 	}
 
 	if mgrCfg.ignoreSysfsChown {
@@ -480,17 +513,18 @@ func (mgr *SysboxMgr) register(regInfo *ipcLib.RegistrationInfo) (*ipcLib.Contai
 	}
 
 	containerCfg := &ipcLib.ContainerConfig{
-		AliasDns:          mgr.mgrCfg.aliasDns,
-		NoShiftfs:         mgr.mgrCfg.noShiftfs,
-		NoIDMappedMount:   mgr.mgrCfg.noIDMappedMount,
-		NoRootfsCloning:   mgr.mgrCfg.noRootfsCloning,
-		IgnoreSysfsChown:  mgr.mgrCfg.ignoreSysfsChown,
-		AllowTrustedXattr: mgr.mgrCfg.allowTrustedXattr,
-		HonorCaps:         mgr.mgrCfg.honorCaps,
-		SyscontMode:       mgr.mgrCfg.syscontMode,
-		Userns:            info.userns,
-		UidMappings:       info.uidMappings,
-		GidMappings:       info.gidMappings,
+		AliasDns:                mgr.mgrCfg.aliasDns,
+		UseShiftfs:              mgr.mgrCfg.useShiftfs,
+		UseIDMapping:            mgr.mgrCfg.useIDMapping,
+		UseIDMappingOnOverlayfs: mgr.mgrCfg.useIDMappingOnOverlayfs,
+		NoRootfsCloning:         mgr.mgrCfg.noRootfsCloning,
+		IgnoreSysfsChown:        mgr.mgrCfg.ignoreSysfsChown,
+		AllowTrustedXattr:       mgr.mgrCfg.allowTrustedXattr,
+		HonorCaps:               mgr.mgrCfg.honorCaps,
+		SyscontMode:             mgr.mgrCfg.syscontMode,
+		Userns:                  info.userns,
+		UidMappings:             info.uidMappings,
+		GidMappings:             info.gidMappings,
 	}
 
 	return containerCfg, nil

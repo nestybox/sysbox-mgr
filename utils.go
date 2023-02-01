@@ -30,12 +30,13 @@ import (
 	"syscall"
 
 	"github.com/nestybox/sysbox-libs/dockerUtils"
+	"github.com/nestybox/sysbox-libs/idShiftUtils"
+	"github.com/nestybox/sysbox-libs/mount"
 	libutils "github.com/nestybox/sysbox-libs/utils"
 	utils "github.com/nestybox/sysbox-libs/utils"
 	intf "github.com/nestybox/sysbox-mgr/intf"
 	"github.com/nestybox/sysbox-mgr/subidAlloc"
 	"github.com/nestybox/sysbox-mgr/volMgr"
-	"github.com/opencontainers/runc/libcontainer/mount"
 	"github.com/opencontainers/runc/libcontainer/user"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
@@ -864,4 +865,28 @@ func getInode(file string) (uint64, error) {
 	}
 
 	return st.Ino, nil
+}
+
+func getIDMappingSupport(ctx *cli.Context) (bool, error) {
+	disableIDMapping := ctx.GlobalBool("disable-idmapped-mount")
+
+	if disableIDMapping {
+		return false, nil
+	}
+
+	return libutils.KernelSupportsIDMappedMounts()
+}
+
+func getIDMappingOvfsSupport() (bool, error) {
+	return idShiftUtils.IDMapMountSupportedOnOverlayfs(sysboxLibDir)
+}
+
+func getShiftfsSupport(ctx *cli.Context) (bool, error) {
+	disableShiftfs := ctx.GlobalBool("disable-shiftfs")
+
+	if disableShiftfs {
+		return false, nil
+	}
+
+	return libutils.KernelModSupported("shiftfs")
 }
