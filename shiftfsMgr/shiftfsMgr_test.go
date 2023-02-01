@@ -22,10 +22,10 @@ import (
 	"os"
 	"testing"
 
+	"github.com/nestybox/sysbox-libs/mount"
 	utils "github.com/nestybox/sysbox-libs/utils"
 	"github.com/nestybox/sysbox-runc/libsysbox/shiftfs"
 	"github.com/opencontainers/runc/libcontainer/configs"
-	"github.com/opencontainers/runc/libcontainer/mount"
 )
 
 var sysboxLibDir string = "/var/lib/sysbox"
