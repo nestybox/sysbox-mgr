@@ -86,6 +86,7 @@ type containerInfo struct {
 type mgrConfig struct {
 	aliasDns                bool
 	useShiftfs              bool
+	useShiftfsOnOverlayfs   bool
 	useIDMapping            bool
 	useIDMappingOnOverlayfs bool
 	noRootfsCloning         bool
@@ -226,28 +227,30 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		return nil, fmt.Errorf("failed to compute kernel-module mounts: %v", err)
 	}
 
-	useIDMapping, err := getIDMappingSupport(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to check kernel ID-mapping support: %v", err)
-	}
+	useIDMapping := false
+	useIDMappingOnOvfs := false
 
-	useIDMappingOnOvfs := useIDMapping
-
-	if useIDMapping {
-		useIDMappingOnOvfs, err = getIDMappingOvfsSupport()
+	if !ctx.GlobalBool("disable-idmapped-mount") {
+		useIDMapping, useIDMappingOnOvfs, err = checkIDMappingSupport(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("failed to check kernel ID-mapping-on-overlayfs support: %v", err)
+			return nil, fmt.Errorf("ID-mapping check failed: %v", err)
 		}
 	}
 
-	useShiftfs, err := getShiftfsSupport(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to check kernel ID shiftfs support: %v", err)
+	useShiftfs := false
+	useShiftfsOnOvfs := false
+
+	if !ctx.GlobalBool("disable-shiftfs") {
+		useShiftfs, useShiftfsOnOvfs, err = checkShiftfsSupport(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("shiftfs check failed: %v", err)
+		}
 	}
 
 	mgrCfg := mgrConfig{
 		aliasDns:                ctx.GlobalBoolT("alias-dns"),
 		useShiftfs:              useShiftfs,
+		useShiftfsOnOverlayfs:   useShiftfsOnOvfs,
 		useIDMapping:            useIDMapping,
 		useIDMappingOnOverlayfs: useIDMappingOnOvfs,
 		noRootfsCloning:         ctx.GlobalBool("disable-rootfs-cloning"),
@@ -261,20 +264,18 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		logrus.Info("Sys container DNS aliasing disabled.")
 	}
 
-	if !mgrCfg.useShiftfs {
-		logrus.Info("Shiftfs disabled or not supported.")
+	if ctx.GlobalBool("disable-shiftfs") {
+		logrus.Info("Use of shiftfs disabled.")
+	} else {
+		logrus.Infof("Shiftfs supported by kernel: %s", ifThenElse(mgrCfg.useShiftfs, "yes", "no"))
+		logrus.Infof("Shiftfs-on-overlayfs supported by kernel: %s", ifThenElse(mgrCfg.useShiftfsOnOverlayfs, "yes", "no"))
 	}
 
-	if mgrCfg.useIDMapping {
-		logrus.Info("ID-mapping supported by kernel.")
-
-		if mgrCfg.useIDMappingOnOverlayfs {
-			logrus.Info("ID-mapping on overlayfs supported by kernel.")
-		} else {
-			logrus.Info("ID-mapping on overlayfs not supported by kernel.")
-		}
+	if ctx.GlobalBool("disable-idmapped-mount") {
+		logrus.Info("Use of ID-mapping disabled.")
 	} else {
-		logrus.Info("ID-mapping disabled or not supported.")
+		logrus.Infof("ID-mapping supported by kernel: %s", ifThenElse(mgrCfg.useIDMapping, "yes", "no"))
+		logrus.Infof("ID-mapping-on-overlayfs supported by kernel: %s", ifThenElse(mgrCfg.useIDMappingOnOverlayfs, "yes", "no"))
 	}
 
 	if mgrCfg.noRootfsCloning {
@@ -516,6 +517,7 @@ func (mgr *SysboxMgr) register(regInfo *ipcLib.RegistrationInfo) (*ipcLib.Contai
 	containerCfg := &ipcLib.ContainerConfig{
 		AliasDns:                mgr.mgrCfg.aliasDns,
 		UseShiftfs:              mgr.mgrCfg.useShiftfs,
+		UseShiftfsOnOverlayfs:   mgr.mgrCfg.useShiftfsOnOverlayfs,
 		UseIDMapping:            mgr.mgrCfg.useIDMapping,
 		UseIDMappingOnOverlayfs: mgr.mgrCfg.useIDMappingOnOverlayfs,
 		NoRootfsCloning:         mgr.mgrCfg.noRootfsCloning,
