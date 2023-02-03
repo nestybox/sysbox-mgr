@@ -33,6 +33,7 @@ import (
 	"github.com/nestybox/sysbox-libs/idMap"
 	"github.com/nestybox/sysbox-libs/linuxUtils"
 	"github.com/nestybox/sysbox-libs/mount"
+	"github.com/nestybox/sysbox-libs/shiftfs"
 	libutils "github.com/nestybox/sysbox-libs/utils"
 	intf "github.com/nestybox/sysbox-mgr/intf"
 	"github.com/nestybox/sysbox-mgr/subidAlloc"
@@ -867,26 +868,34 @@ func getInode(file string) (uint64, error) {
 	return st.Ino, nil
 }
 
-func getIDMappingSupport(ctx *cli.Context) (bool, error) {
-	disableIDMapping := ctx.GlobalBool("disable-idmapped-mount")
-
-	if disableIDMapping {
-		return false, nil
+func checkIDMappingSupport(ctx *cli.Context) (bool, bool, error) {
+	useIDMapping, err := idMap.IDMapMountSupported(sysboxLibDir)
+	if err != nil {
+		return false, false, fmt.Errorf("failed to check kernel ID-mapping support: %v", err)
 	}
-
-	return linuxUtils.KernelSupportsIDMappedMounts()
+	useIDMappingOnOvfs, err := idMap.IDMapMountSupportedOnOverlayfs(sysboxLibDir)
+	if err != nil {
+		return false, false, fmt.Errorf("failed to check kernel ID-mapping-on-overlayfs support: %v", err)
+	}
+	return useIDMapping, useIDMappingOnOvfs, nil
 }
 
-func getIDMappingOvfsSupport() (bool, error) {
-	return idMap.IDMapMountSupportedOnOverlayfs(sysboxLibDir)
+func checkShiftfsSupport(ctx *cli.Context) (bool, bool, error) {
+	useShiftfs, err := shiftfs.ShiftfsSupported(sysboxLibDir)
+	if err != nil {
+		return false, false, fmt.Errorf("failed to check kernel shiftfs support: %v", err)
+	}
+	useShiftfsOnOvfs, err := shiftfs.ShiftfsSupportedOnOverlayfs(sysboxLibDir)
+	if err != nil {
+		return false, false, fmt.Errorf("failed to check kernel shiftfs-on-overlayfs support: %v", err)
+	}
+	return useShiftfs, useShiftfsOnOvfs, nil
 }
 
-func getShiftfsSupport(ctx *cli.Context) (bool, error) {
-	disableShiftfs := ctx.GlobalBool("disable-shiftfs")
-
-	if disableShiftfs {
-		return false, nil
+// ifThenElse is one-liner for "condition? a : b"
+func ifThenElse(condition bool, a interface{}, b interface{}) interface{} {
+	if condition {
+		return a
 	}
-
-	return linuxUtils.KernelModSupported("shiftfs")
+	return b
 }
