@@ -123,13 +123,11 @@ func (m *vmgr) CreateVol(id, rootfs, mountpoint string, uid, gid uint32, shiftUi
 		return nil, fmt.Errorf("failed to create volume for container %v: %v", id, err)
 	}
 
-	// Set the ownership of the newly created volume to match the given uid(gid); this
-	// ensures that the container will have permission to access the volume. Note that by
-	// doing this, we also ensure that sysbox-runc won't mount shiftfs on top of the
-	// volume.
-	if err = os.Chown(volPath, int(uid), int(gid)); err != nil {
-		os.RemoveAll(volPath)
-		return nil, fmt.Errorf("failed to set ownership of volume %v: %v", volPath, err)
+	if shiftUids {
+		if err = os.Chown(volPath, int(uid), int(gid)); err != nil {
+			os.RemoveAll(volPath)
+			return nil, fmt.Errorf("failed to set ownership of volume %v: %v", volPath, err)
+		}
 	}
 
 	if m.sync {

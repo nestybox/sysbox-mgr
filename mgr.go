@@ -845,7 +845,7 @@ func (mgr *SysboxMgr) reqMounts(id string, uid, gid uint32, reqList []ipcLib.Mou
 		return info.containerMnts, nil
 	}
 
-	// setup dirs that will be bind-mounted into container
+	// setup dirs that will be bind-mounted into the container
 	containerMnts := []specs.Mount{}
 	reqMntInfos := []mountInfo{}
 	rootfs := info.rootfs
