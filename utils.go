@@ -868,28 +868,28 @@ func getInode(file string) (uint64, error) {
 	return st.Ino, nil
 }
 
-func checkIDMappingSupport(ctx *cli.Context) (bool, bool, error) {
-	useIDMapping, err := idMap.IDMapMountSupported(sysboxLibDir)
+func checkIDMapMountSupport(ctx *cli.Context) (bool, bool, error) {
+	IDMapMountOk, err := idMap.IDMapMountSupported(sysboxLibDir)
 	if err != nil {
 		return false, false, fmt.Errorf("failed to check kernel ID-mapping support: %v", err)
 	}
-	useIDMappingOnOvfs, err := idMap.IDMapMountSupportedOnOverlayfs(sysboxLibDir)
+	ovfsOnIDMapMountOk, err := idMap.OverlayfsOnIDMapMountSupported(sysboxLibDir)
 	if err != nil {
 		return false, false, fmt.Errorf("failed to check kernel ID-mapping-on-overlayfs support: %v", err)
 	}
-	return useIDMapping, useIDMappingOnOvfs, nil
+	return IDMapMountOk, ovfsOnIDMapMountOk, nil
 }
 
 func checkShiftfsSupport(ctx *cli.Context) (bool, bool, error) {
-	useShiftfs, err := shiftfs.ShiftfsSupported(sysboxLibDir)
+	shiftfsOk, err := shiftfs.ShiftfsSupported(sysboxLibDir)
 	if err != nil {
 		return false, false, fmt.Errorf("failed to check kernel shiftfs support: %v", err)
 	}
-	useShiftfsOnOvfs, err := shiftfs.ShiftfsSupportedOnOverlayfs(sysboxLibDir)
+	shiftfsOnOvfsOk, err := shiftfs.ShiftfsSupportedOnOverlayfs(sysboxLibDir)
 	if err != nil {
 		return false, false, fmt.Errorf("failed to check kernel shiftfs-on-overlayfs support: %v", err)
 	}
-	return useShiftfs, useShiftfsOnOvfs, nil
+	return shiftfsOk, shiftfsOnOvfsOk, nil
 }
 
 // ifThenElse is one-liner for "condition? a : b"
