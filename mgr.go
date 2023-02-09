@@ -707,7 +707,7 @@ func (mgr *SysboxMgr) unregister(id string) error {
 }
 
 func (mgr *SysboxMgr) volSyncOut(id string, info containerInfo) error {
-	var err error
+	var err, err2 error
 	failedVols := []string{}
 
 	for _, mnt := range info.reqMntInfos {
@@ -730,11 +730,12 @@ func (mgr *SysboxMgr) volSyncOut(id string, info containerInfo) error {
 
 		if err != nil {
 			failedVols = append(failedVols, mnt.kind.String())
+			err2 = err
 		}
 	}
 
 	if len(failedVols) > 0 {
-		return fmt.Errorf("sync-out for volume backing %s failed: %v", failedVols, err)
+		return fmt.Errorf("sync-out for volume backing %s: %v", failedVols, err2)
 	}
 
 	return nil
