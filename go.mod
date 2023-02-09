@@ -13,6 +13,7 @@ require (
 	github.com/nestybox/sysbox-libs/idMap v0.0.0-00010101000000-000000000000
 	github.com/nestybox/sysbox-libs/idShiftUtils v0.0.0-00010101000000-000000000000
 	github.com/nestybox/sysbox-libs/linuxUtils v0.0.0-00010101000000-000000000000
+	github.com/nestybox/sysbox-libs/overlayUtils v0.0.0-00010101000000-000000000000
 	github.com/nestybox/sysbox-libs/mount v0.0.0-00010101000000-000000000000
 	github.com/nestybox/sysbox-libs/shiftfs v0.0.0-00010101000000-000000000000
 	github.com/nestybox/sysbox-libs/utils v0.0.0-00010101000000-000000000000

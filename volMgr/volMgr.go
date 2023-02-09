@@ -39,19 +39,23 @@ import (
 
 	"github.com/nestybox/sysbox-libs/formatter"
 	"github.com/nestybox/sysbox-libs/idShiftUtils"
+	mount "github.com/nestybox/sysbox-libs/mount"
+	overlayUtils "github.com/nestybox/sysbox-libs/overlayUtils"
+	utils "github.com/nestybox/sysbox-libs/utils"
 	"github.com/nestybox/sysbox-mgr/intf"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
 )
 
 type volInfo struct {
-	volPath   string      // volume path in host
-	rootfs    string      // container rootfs
-	mountPath string      // container path where volume is mounted
-	uid       uint32      // uid owner for container
-	gid       uint32      // gid owner for container
-	shiftUids bool        // uid(gid) shifting enabled for the volume
-	perm      os.FileMode // permissions for the volume
+	volPath     string      // volume path in host
+	rootfs      string      // container rootfs
+	mountPath   string      // container path where volume is mounted
+	syncOutPath string      // container path for volume sync-out
+	uid         uint32      // uid owner for container
+	gid         uint32      // gid owner for container
+	shiftUids   bool        // uid(gid) shifting enabled for the volume
+	perm        os.FileMode // permissions for the volume
 }
 
 type vmgr struct {
@@ -87,10 +91,29 @@ func (m *vmgr) CreateVol(id, rootfs, mountpoint string, uid, gid uint32, shiftUi
 	var err error
 
 	volPath := filepath.Join(m.hostDir, id)
-	mountPath := filepath.Join(rootfs, mountpoint)
-
 	if _, err = os.Stat(volPath); err == nil {
 		return nil, fmt.Errorf("volume dir for container %v already exists", id)
+	}
+
+	mountPath := filepath.Join(rootfs, mountpoint)
+
+	rootfsOnOvfs, rootfsOvfsUpper, err := isRootfsOnOverlayfs(rootfs)
+	if err != nil {
+		return nil, err
+	}
+
+	// When the container stops and we need to copy the volume contents back to
+	// the container's rootfs. We call this "sync-out", and syncOutPath is the
+	// path were we want to copy to.
+	syncOutPath := mountPath
+
+	// If the container rootfs is on overlayfs, the syncOutPath can't be the
+	// overlayfs merged dir. That's because sysbox-runc may have remounted that
+	// in the container's mount ns (e.g., when using id-mapping on the rootfs),
+	// so sysbox-mgr won't have access to it. Instead the syncOutPath is the
+	// overlayfs "upper" dir.
+	if rootfsOnOvfs {
+		syncOutPath = filepath.Join(rootfsOvfsUpper, mountpoint)
 	}
 
 	// create volume info
@@ -100,13 +123,14 @@ func (m *vmgr) CreateVol(id, rootfs, mountpoint string, uid, gid uint32, shiftUi
 		return nil, fmt.Errorf("volume for container %v already exists", id)
 	}
 	vi := volInfo{
-		volPath:   volPath,
-		rootfs:    rootfs,
-		mountPath: mountPath,
-		uid:       uid,
-		gid:       gid,
-		shiftUids: shiftUids,
-		perm:      perm,
+		volPath:     volPath,
+		rootfs:      rootfs,
+		mountPath:   mountPath,
+		syncOutPath: syncOutPath,
+		uid:         uid,
+		gid:         gid,
+		shiftUids:   shiftUids,
+		perm:        perm,
 	}
 	m.volTable[id] = vi
 	m.mu.Unlock()
@@ -209,33 +233,33 @@ func (m *vmgr) SyncOut(id string) error {
 		return nil
 	}
 
-	// mountPath is the sync-out target; if it does not exist, create it (but only if we
-	// are going to be copying anything to it).
-	if _, err := os.Stat(vi.mountPath); os.IsNotExist(err) {
+	// if the sync out target does not exist, create it (but only if we are going
+	// to be copying anything to it).
+	if _, err := os.Stat(vi.syncOutPath); os.IsNotExist(err) {
 		volIsEmpty, err := dirIsEmpty(vi.volPath)
 		if err != nil {
 			return fmt.Errorf("error while checking if %s is empty: %s", vi.volPath, err)
 		}
 		if !volIsEmpty {
-			if err := os.MkdirAll(vi.mountPath, vi.perm); err != nil {
-				return fmt.Errorf("failed to create directory %s: %s", vi.mountPath, err)
+			if err := os.MkdirAll(vi.syncOutPath, vi.perm); err != nil {
+				return fmt.Errorf("failed to create directory %s: %s", vi.syncOutPath, err)
 			}
 		}
 	}
 
 	// If the sync-out target exists, perform the rsync
-	if _, err := os.Stat(vi.mountPath); err == nil {
-		if err := m.rsyncVol(vi.volPath, vi.mountPath, vi.uid, vi.gid, vi.shiftUids, shiftDown); err != nil {
+	if _, err := os.Stat(vi.syncOutPath); err == nil {
+		if err := m.rsyncVol(vi.volPath, vi.syncOutPath, vi.uid, vi.gid, vi.shiftUids, shiftDown); err != nil {
 
 			// For sync-outs, the operation may fail if the target is removed while
 			// we are doing the copy. In this case we ignore the error since there
 			// is no data loss (the data being sync'd out would have been removed
 			// anyways).
 
-			_, err2 := os.Stat(vi.mountPath)
+			_, err2 := os.Stat(vi.syncOutPath)
 			if err2 != nil && os.IsNotExist(err2) {
 				logrus.Debugf("%s: volume sync-out for container %s skipped: target %s does not exist",
-					m.name, formatter.ContainerID{id}, vi.mountPath)
+					m.name, formatter.ContainerID{id}, vi.syncOutPath)
 				return nil
 			}
 
@@ -358,4 +382,31 @@ func dirIsEmpty(name string) (bool, error) {
 	}
 
 	return false, err
+}
+
+func isRootfsOnOverlayfs(rootfs string) (bool, string, error) {
+
+	fsName, err := utils.GetFsName(rootfs)
+	if err != nil {
+		return false, "", err
+	}
+
+	if fsName != "overlayfs" {
+		return false, "", nil
+	}
+
+	mounts, err := mount.GetMountsPid(uint32(os.Getpid()))
+	if err != nil {
+		return false, "", err
+	}
+
+	mi, err := mount.GetMountAt(rootfs, mounts)
+	if err != nil {
+		return false, "", err
+	}
+
+	ovfsMntOpts := overlayUtils.GetMountOpt(mi)
+	ovfsUpperLayer := overlayUtils.GetUpperLayer(ovfsMntOpts)
+
+	return true, ovfsUpperLayer, nil
 }
