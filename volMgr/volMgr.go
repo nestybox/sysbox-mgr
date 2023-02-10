@@ -400,9 +400,10 @@ func isRootfsOnOverlayfs(rootfs string) (bool, string, error) {
 		return false, "", err
 	}
 
+	// If the rootfs is not a mountpoint, return false.
 	mi, err := mount.GetMountAt(rootfs, mounts)
 	if err != nil {
-		return false, "", err
+		return false, "", nil
 	}
 
 	ovfsMntOpts := overlayUtils.GetMountOpt(mi)
