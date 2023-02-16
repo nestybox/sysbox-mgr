@@ -33,6 +33,7 @@ import (
 	"github.com/nestybox/sysbox-libs/idMap"
 	"github.com/nestybox/sysbox-libs/linuxUtils"
 	"github.com/nestybox/sysbox-libs/mount"
+	"github.com/nestybox/sysbox-libs/overlayUtils"
 	"github.com/nestybox/sysbox-libs/shiftfs"
 	libutils "github.com/nestybox/sysbox-libs/utils"
 	intf "github.com/nestybox/sysbox-mgr/intf"
@@ -890,6 +891,32 @@ func checkShiftfsSupport(ctx *cli.Context) (bool, bool, error) {
 		return false, false, fmt.Errorf("failed to check kernel shiftfs-on-overlayfs support: %v", err)
 	}
 	return shiftfsOk, shiftfsOnOvfsOk, nil
+}
+
+func isRootfsOnOverlayfs(rootfs string) (bool, string, error) {
+	fsName, err := libutils.GetFsName(rootfs)
+	if err != nil {
+		return false, "", err
+	}
+	if fsName != "overlayfs" {
+		return false, "", nil
+	}
+
+	mounts, err := mount.GetMountsPid(uint32(os.Getpid()))
+	if err != nil {
+		return false, "", err
+	}
+
+	// If the rootfs is not a mountpoint, return false.
+	mi, err := mount.GetMountAt(rootfs, mounts)
+	if err != nil {
+		return false, "", nil
+	}
+
+	ovfsMntOpts := overlayUtils.GetMountOpt(mi)
+	ovfsUpperLayer := overlayUtils.GetUpperLayer(ovfsMntOpts)
+
+	return true, ovfsUpperLayer, nil
 }
 
 // ifThenElse is one-liner for "condition? a : b"
