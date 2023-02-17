@@ -17,6 +17,7 @@
 package shiftfsMgr
 
 import (
+	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
@@ -35,12 +36,20 @@ type mountTest struct {
 	mounts []configs.ShiftfsMount
 }
 
-func hostSupportsShiftfs() bool {
-	modSupported, err := utils.KernelModSupported("shiftfs")
+func hostSupportsShiftfs() (bool, error) {
+
+	dir, err := ioutil.TempDir("/mnt/scratch", "shiftfsMgrTest")
 	if err != nil {
-		return false
+		return false, err
 	}
-	return modSupported
+	defer os.RemoveAll(dir)
+
+	shiftfsOk, err := shiftfs.ShiftfsSupported(dir)
+	if err != nil {
+		return false, fmt.Errorf("failed to check kernel shiftfs support: %v", err)
+	}
+
+	return shiftfsOk, nil
 }
 
 func setupTest() (string, error) {
@@ -97,7 +106,12 @@ func mountTestEqual(a, b []mountTest) bool {
 
 func TestShiftfsMgrBasic(t *testing.T) {
 
-	if !hostSupportsShiftfs() {
+	shiftfsOk, err := hostSupportsShiftfs()
+	if err != nil {
+		t.Errorf("error: host shiftfs check failed: %s", err)
+	}
+
+	if !shiftfsOk {
 		t.Skip("skipping test (shiftfs not supported).")
 	}
 
@@ -242,7 +256,12 @@ func TestShiftfsMgrBasic(t *testing.T) {
 
 func TestShiftfsMgrCreateMarkpoint(t *testing.T) {
 
-	if !hostSupportsShiftfs() {
+	shiftfsOk, err := hostSupportsShiftfs()
+	if err != nil {
+		t.Errorf("error: host shiftfs check failed: %s", err)
+	}
+
+	if !shiftfsOk {
 		t.Skip("skipping test (shiftfs not supported).")
 	}
 
@@ -386,7 +405,12 @@ func TestShiftfsMgrCreateMarkpoint(t *testing.T) {
 
 func TestShiftfsMgrMarkIgnore(t *testing.T) {
 
-	if !hostSupportsShiftfs() {
+	shiftfsOk, err := hostSupportsShiftfs()
+	if err != nil {
+		t.Errorf("error: host shiftfs check failed: %s", err)
+	}
+
+	if !shiftfsOk {
 		t.Skip("skipping test (shiftfs not supported).")
 	}
 
@@ -511,7 +535,12 @@ func TestShiftfsMgrMarkIgnore(t *testing.T) {
 
 func TestShiftfsMgrUnmarkAll(t *testing.T) {
 
-	if !hostSupportsShiftfs() {
+	shiftfsOk, err := hostSupportsShiftfs()
+	if err != nil {
+		t.Errorf("error: host shiftfs check failed: %s", err)
+	}
+
+	if !shiftfsOk {
 		t.Skip("skipping test (shiftfs not supported).")
 	}
 
