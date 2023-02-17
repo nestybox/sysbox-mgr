@@ -242,6 +242,10 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		}
 	}
 
+	if ctx.GlobalBool("disable-ovfs-on-idmapped-mount") {
+		ovfsOnIDMapMountOk = false
+	}
+
 	shiftfsModPresent := false
 	shiftfsOk := false
 	shiftfsOnOvfsOk := false
@@ -291,6 +295,11 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		logrus.Info("Use of ID-mapped mounts disabled.")
 	} else {
 		logrus.Infof("ID-mapped mounts supported by kernel: %s", ifThenElse(mgrCfg.idMapMountOk, "yes", "no"))
+	}
+
+	if ctx.GlobalBool("disable-ovfs-on-idmapped-mount") {
+		logrus.Info("Use of overlayfs on ID-mapped mounts disabled.")
+	} else {
 		logrus.Infof("Overlayfs on ID-mapped mounts supported by kernel: %s", ifThenElse(mgrCfg.overlayfsOnIDMapMountOk, "yes", "no"))
 	}
 

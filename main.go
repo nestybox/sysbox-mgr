@@ -111,6 +111,10 @@ func main() {
 			Usage: "Disables Sysbox's rootfs cloning feature (used for fast chown of the container's rootfs in hosts without shiftfs); this option will significantly slow down container startup time in hosts without shiftfs (default = false)",
 		},
 		cli.BoolFlag{
+			Name:  "disable-ovfs-on-idmapped-mount",
+			Usage: "Disables ID-mapping of overlayfs (available in Linux kernel 5.19+); when set to true, forces Sysbox to use either shiftfs (if available on the host) or otherwise chown the container's rootfs, slowing container start/stop time; meant for testing (default = false)",
+		},
+		cli.BoolFlag{
 			Name:  "ignore-sysfs-chown",
 			Usage: "Ignore chown of /sys inside all Sysbox containers; may be needed to run a few apps that chown /sys inside the container (e.g,. rpm). Causes Sysbox to trap the chown syscall inside the container, slowing it down (default = false).",
 		},
