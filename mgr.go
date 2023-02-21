@@ -667,12 +667,17 @@ func (mgr *SysboxMgr) unregister(id string) error {
 		!info.autoRemove &&
 		info.rootfsUidShiftType == idShiftUtils.IDMappedMount {
 
-		rootfsOnOvfs, rootfsOvfsUpper, err := isRootfsOnOverlayfs(info.rootfs)
+		rootfsOnOvfs, err := isRootfsOnOverlayfs(info.rootfs)
 		if err != nil {
 			return err
 		}
 
 		if rootfsOnOvfs {
+			rootfsOvfsUpper, err := getRootfsOverlayUpperLayer(info.rootfs)
+			if err != nil {
+				return err
+			}
+
 			uidOffset := -int32(info.uidMappings[0].HostID)
 			gidOffset := -int32(info.gidMappings[0].HostID)
 
@@ -1311,11 +1316,16 @@ func (mgr *SysboxMgr) pause(id string) error {
 	if info.rootfsUidShiftType == idShiftUtils.IDMappedMount &&
 		!info.rootfsOvfsUpperChowned {
 
-		rootfsOnOvfs, rootfsOvfsUpper, err := isRootfsOnOverlayfs(info.rootfs)
+		rootfsOnOvfs, err := isRootfsOnOverlayfs(info.rootfs)
 		if err != nil {
 			return err
 		}
 		if rootfsOnOvfs {
+			rootfsOvfsUpper, err := getRootfsOverlayUpperLayer(info.rootfs)
+			if err != nil {
+				return err
+			}
+
 			uidOffset := -int32(info.uidMappings[0].HostID)
 			gidOffset := -int32(info.gidMappings[0].HostID)
 

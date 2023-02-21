@@ -893,30 +893,30 @@ func checkShiftfsSupport(ctx *cli.Context) (bool, bool, error) {
 	return shiftfsOk, shiftfsOnOvfsOk, nil
 }
 
-func isRootfsOnOverlayfs(rootfs string) (bool, string, error) {
+func isRootfsOnOverlayfs(rootfs string) (bool, error) {
 	fsName, err := libutils.GetFsName(rootfs)
 	if err != nil {
-		return false, "", err
+		return false, err
 	}
 	if fsName != "overlayfs" {
-		return false, "", nil
+		return false, nil
 	}
+	return true, nil
+}
 
+func getRootfsOverlayUpperLayer(rootfs string) (string, error) {
 	mounts, err := mount.GetMountsPid(uint32(os.Getpid()))
 	if err != nil {
-		return false, "", err
+		return "", err
 	}
-
-	// If the rootfs is not a mountpoint, return false.
 	mi, err := mount.GetMountAt(rootfs, mounts)
 	if err != nil {
-		return false, "", nil
+		return "", nil
 	}
-
 	ovfsMntOpts := overlayUtils.GetMountOpt(mi)
 	ovfsUpperLayer := overlayUtils.GetUpperLayer(ovfsMntOpts)
 
-	return true, ovfsUpperLayer, nil
+	return ovfsUpperLayer, nil
 }
 
 // ifThenElse is one-liner for "condition? a : b"
