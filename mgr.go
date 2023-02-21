@@ -99,6 +99,7 @@ type mgrConfig struct {
 	honorCaps               bool
 	syscontMode             bool
 	fsuidMapFailOnErr       bool
+	noInnerImgPreload       bool
 }
 
 type SysboxMgr struct {
@@ -167,37 +168,39 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		return nil, fmt.Errorf("failed to setup subid allocator: %v", err)
 	}
 
-	dockerVolMgr, err := setupDockerVolMgr(ctx)
+	syncVolToRootfs := !ctx.GlobalBool("disable-inner-image-preload")
+
+	dockerVolMgr, err := setupDockerVolMgr(syncVolToRootfs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup docker vol mgr: %v", err)
 	}
 
-	kubeletVolMgr, err := setupKubeletVolMgr(ctx)
+	kubeletVolMgr, err := setupKubeletVolMgr(syncVolToRootfs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup kubelet vol mgr: %v", err)
 	}
 
-	k0sVolMgr, err := setupK0sVolMgr(ctx)
+	k0sVolMgr, err := setupK0sVolMgr(syncVolToRootfs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup k0s vol mgr: %v", err)
 	}
 
-	k3sVolMgr, err := setupK3sVolMgr(ctx)
+	k3sVolMgr, err := setupK3sVolMgr(syncVolToRootfs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup k3s vol mgr: %v", err)
 	}
 
-	rke2VolMgr, err := setupRke2VolMgr(ctx)
+	rke2VolMgr, err := setupRke2VolMgr(syncVolToRootfs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup rke2 vol mgr: %v", err)
 	}
 
-	buildkitVolMgr, err := setupBuildkitVolMgr(ctx)
+	buildkitVolMgr, err := setupBuildkitVolMgr(syncVolToRootfs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup buildkit vol mgr: %v", err)
 	}
 
-	containerdVolMgr, err := setupContainerdVolMgr(ctx)
+	containerdVolMgr, err := setupContainerdVolMgr(syncVolToRootfs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup containerd vol mgr: %v", err)
 	}
@@ -277,6 +280,7 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		honorCaps:               ctx.GlobalBool("honor-caps"),
 		syscontMode:             ctx.GlobalBoolT("syscont-mode"),
 		fsuidMapFailOnErr:       ctx.GlobalBool("fsuid-map-fail-on-error"),
+		noInnerImgPreload:       !syncVolToRootfs,
 	}
 
 	if !mgrCfg.aliasDns {
@@ -327,6 +331,12 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 
 	if mgrCfg.fsuidMapFailOnErr {
 		logrus.Info("fsuid-map-fail-on-error = true.")
+	}
+
+	if mgrCfg.noInnerImgPreload {
+		logrus.Info("Inner container image preloading disabled.")
+	} else {
+		logrus.Info("Inner container image preloading enabled.")
 	}
 
 	mgr := &SysboxMgr{

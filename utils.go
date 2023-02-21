@@ -284,7 +284,7 @@ func setupSubidAlloc(ctx *cli.Context) (intf.SubidAlloc, error) {
 	return subidAlloc, nil
 }
 
-func setupDockerVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
+func setupDockerVolMgr(syncToRootfs bool) (intf.VolMgr, error) {
 	var statfs syscall.Statfs_t
 
 	hostDir := filepath.Join(sysboxLibDir, "docker")
@@ -312,10 +312,10 @@ func setupDockerVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
 		}
 	}
 
-	return volMgr.New("dockerVolMgr", hostDir, true)
+	return volMgr.New("dockerVolMgr", hostDir, syncToRootfs)
 }
 
-func setupKubeletVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
+func setupKubeletVolMgr(syncToRootfs bool) (intf.VolMgr, error) {
 
 	var statfs syscall.Statfs_t
 
@@ -341,10 +341,10 @@ func setupKubeletVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
 		}
 	}
 
-	return volMgr.New("kubeletVolMgr", hostDir, true)
+	return volMgr.New("kubeletVolMgr", hostDir, syncToRootfs)
 }
 
-func setupK0sVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
+func setupK0sVolMgr(syncToRootfs bool) (intf.VolMgr, error) {
 
 	var statfs syscall.Statfs_t
 
@@ -370,10 +370,10 @@ func setupK0sVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
 		}
 	}
 
-	return volMgr.New("k0sVolMgr", hostDir, true)
+	return volMgr.New("k0sVolMgr", hostDir, syncToRootfs)
 }
 
-func setupK3sVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
+func setupK3sVolMgr(syncToRootfs bool) (intf.VolMgr, error) {
 
 	var statfs syscall.Statfs_t
 
@@ -399,10 +399,10 @@ func setupK3sVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
 		}
 	}
 
-	return volMgr.New("k3sVolMgr", hostDir, true)
+	return volMgr.New("k3sVolMgr", hostDir, syncToRootfs)
 }
 
-func setupRke2VolMgr(ctx *cli.Context) (intf.VolMgr, error) {
+func setupRke2VolMgr(syncToRootfs bool) (intf.VolMgr, error) {
 
 	var statfs syscall.Statfs_t
 
@@ -428,10 +428,10 @@ func setupRke2VolMgr(ctx *cli.Context) (intf.VolMgr, error) {
 		}
 	}
 
-	return volMgr.New("rke2VolMgr", hostDir, true)
+	return volMgr.New("rke2VolMgr", hostDir, syncToRootfs)
 }
 
-func setupBuildkitVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
+func setupBuildkitVolMgr(syncToRootfs bool) (intf.VolMgr, error) {
 
 	var statfs syscall.Statfs_t
 
@@ -457,10 +457,10 @@ func setupBuildkitVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
 		}
 	}
 
-	return volMgr.New("buildkitVolMgr", hostDir, true)
+	return volMgr.New("buildkitVolMgr", hostDir, syncToRootfs)
 }
 
-func setupContainerdVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
+func setupContainerdVolMgr(syncToRootfs bool) (intf.VolMgr, error) {
 
 	var statfs syscall.Statfs_t
 
@@ -487,7 +487,7 @@ func setupContainerdVolMgr(ctx *cli.Context) (intf.VolMgr, error) {
 		}
 	}
 
-	return volMgr.New("containerdVolMgr", hostDir, true)
+	return volMgr.New("containerdVolMgr", hostDir, syncToRootfs)
 }
 
 func setupRunDir() error {
