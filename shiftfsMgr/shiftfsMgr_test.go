@@ -107,7 +107,7 @@ func TestShiftfsMgrBasic(t *testing.T) {
 
 	shiftfsOk, err := hostSupportsShiftfs()
 	if err != nil {
-		t.Errorf("error: host shiftfs check failed: %s", err)
+		t.Fatalf("error: host shiftfs check failed: %s", err)
 	}
 
 	if !shiftfsOk {
@@ -257,7 +257,7 @@ func TestShiftfsMgrCreateMarkpoint(t *testing.T) {
 
 	shiftfsOk, err := hostSupportsShiftfs()
 	if err != nil {
-		t.Errorf("error: host shiftfs check failed: %s", err)
+		t.Fatalf("error: host shiftfs check failed: %s", err)
 	}
 
 	if !shiftfsOk {
@@ -406,7 +406,7 @@ func TestShiftfsMgrMarkIgnore(t *testing.T) {
 
 	shiftfsOk, err := hostSupportsShiftfs()
 	if err != nil {
-		t.Errorf("error: host shiftfs check failed: %s", err)
+		t.Fatalf("error: host shiftfs check failed: %s", err)
 	}
 
 	if !shiftfsOk {
@@ -536,7 +536,7 @@ func TestShiftfsMgrUnmarkAll(t *testing.T) {
 
 	shiftfsOk, err := hostSupportsShiftfs()
 	if err != nil {
-		t.Errorf("error: host shiftfs check failed: %s", err)
+		t.Fatalf("error: host shiftfs check failed: %s", err)
 	}
 
 	if !shiftfsOk {
