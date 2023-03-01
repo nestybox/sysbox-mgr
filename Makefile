@@ -67,18 +67,18 @@ endif
 sysbox-mgr: $(SYSMGR_BUILDDIR)/$(SYSMGR_TARGET)
 
 $(SYSMGR_BUILDDIR)/$(SYSMGR_TARGET): $(SYSMGR_SRC) $(SYSMGR_GRPC_SRC) $(SYSLIB_SRC)
-	$(GO_XCOMPILE) $(GO) build -trimpath -tags "$(BUILDTAGS)" -ldflags "${LDFLAGS}" -o $(SYSMGR_BUILDDIR)/sysbox-mgr
+	$(GO_XCOMPILE) $(GO) build -buildvcs=false -trimpath -tags "$(BUILDTAGS)" -ldflags "${LDFLAGS}" -o $(SYSMGR_BUILDDIR)/sysbox-mgr
 
 sysbox-mgr-debug: $(SYSMGR_BUILDDIR)/$(SYSMGR_DEBUG_TARGET)
 
 $(SYSMGR_BUILDDIR)/$(SYSMGR_DEBUG_TARGET): $(SYSMGR_SRC) $(SYSMGR_GRPC_SRC) $(SYSLIB_SRC)
-	$(GO_XCOMPILE) $(GO) build -trimpath -tags "$(BUILDTAGS)" -gcflags="all=-N -l" -ldflags "${LDFLAGS}" \
+	$(GO_XCOMPILE) $(GO) build -buildvcs=false -trimpath -tags "$(BUILDTAGS)" -gcflags="all=-N -l" -ldflags "${LDFLAGS}" \
 		-o $(SYSMGR_BUILDDIR)/sysbox-mgr
 
 sysbox-mgr-static: $(SYSMGR_BUILDDIR)/$(SYSMGR_STATIC_TARGET)
 
 $(SYSMGR_BUILDDIR)/$(SYSMGR_STATIC_TARGET): $(SYSMGR_SRC) $(SYSMGR_GRPC_SRC) $(SYSLIB_SRC)
-	CGO_ENABLED=1 $(GO_XCOMPILE) $(GO) build -trimpath -tags "$(BUILDTAGS) netgo osusergo" \
+	CGO_ENABLED=1 $(GO_XCOMPILE) $(GO) build -buildvcs=false -trimpath -tags "$(BUILDTAGS) netgo osusergo" \
 		-installsuffix netgo -ldflags "-w -extldflags -static ${LDFLAGS}" \
 		-o $(SYSMGR_BUILDDIR)/sysbox-mgr
 
