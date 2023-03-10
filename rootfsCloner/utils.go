@@ -1,5 +1,5 @@
 //
-// Copyright 2022 Nestybox, Inc.
+// Copyright 2022-2023 Nestybox, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -56,10 +56,6 @@ func mountClone(ci *cloneInfo) error {
 		return fmt.Errorf("failed to set up bottom ovfs mount: %v", err)
 	}
 
-	if err := setupTopMount(ci); err != nil {
-		return fmt.Errorf("failed to set up top ovfs mount: %v", err)
-	}
-
 	if err := bindOrigRootfs(ci); err != nil {
 		return fmt.Errorf("failed to bind mount over orig rootfs: %v", err)
 	}
@@ -85,10 +81,6 @@ func unmountClone(ci *cloneInfo) error {
 		logrus.Errorf("failed to remove bind mounts over orig rootfs: %s", err)
 	}
 
-	if err := removeTopMount(ci); err != nil {
-		return fmt.Errorf("failed to remove top mount: %s", err)
-	}
-
 	if err := removeBottomMount(ci); err != nil {
 		return fmt.Errorf("failed to remove bottom mount: %s", err)
 	}
@@ -101,9 +93,9 @@ func unmountClone(ci *cloneInfo) error {
 // sysbox data root directory (e.g., /var/lib/sysbox/rootfs/<id>/bottom/merged)
 func setupBottomMount(ci *cloneInfo) error {
 
-	mergedDir := ci.bottomMount.mergedDir
-	diffDir := ci.bottomMount.diffDir
-	workDir := ci.bottomMount.workDir
+	mergedDir := ci.ovfsMount.mergedDir
+	diffDir := ci.ovfsMount.diffDir
+	workDir := ci.ovfsMount.workDir
 
 	// This gets us the orig rootfs ovfs mount options, and adds metacopy=on to them
 	mntFlags, options, propFlags := getBottomMountOpt(ci.origRootfsMntInfo, []interface{}{"metacopy=on"})
@@ -133,50 +125,7 @@ func setupBottomMount(ci *cloneInfo) error {
 
 // Removes the overlayfs bottom mount
 func removeBottomMount(ci *cloneInfo) error {
-	return unix.Unmount(ci.bottomMount.mergedDir, unix.MNT_DETACH)
-}
-
-// Sets up the overlayfs top mount; it uses the bottom mount's merged dir as its
-// lower layer. This mount lives inside the sysbox data root directory (e.g.,
-// /var/lib/sysbox/rootfs/<id>/top/merged) and serves as the container's rootfs.
-func setupTopMount(ci *cloneInfo) error {
-
-	lowerDir := ci.bottomMount.mergedDir
-	diffDir := ci.topMount.diffDir
-	workDir := ci.topMount.workDir
-	mergedDir := ci.topMount.mergedDir
-
-	// This gets us the orig rootfs ovfs mount options
-	mntFlags, options, propFlags := getBottomMountOpt(ci.origRootfsMntInfo, []interface{}{""})
-
-	// Replace the original ovfs lowerdir, upperdir, and workdir with the top mount ones
-	tmpOpt := ""
-	for _, opt := range strings.Split(options, ",") {
-		if strings.Contains(opt, "lowerdir=") {
-			opt = "lowerdir=" + lowerDir
-		} else if strings.Contains(opt, "upperdir=") {
-			opt = "upperdir=" + diffDir
-		} else if strings.Contains(opt, "workdir=") {
-			opt = "workdir=" + workDir
-		}
-		tmpOpt += opt + ","
-	}
-	options = strings.TrimSuffix(tmpOpt, ",")
-
-	if err := unix.Mount("overlay", mergedDir, "overlay", uintptr(mntFlags), options); err != nil {
-		return fmt.Errorf("failed to mount overlayfs on %s: %s", mergedDir, err)
-	}
-
-	if err := unix.Mount("", mergedDir, "", uintptr(propFlags), ""); err != nil {
-		return fmt.Errorf("failed to set mount prop flags on %s: %s", mergedDir, err)
-	}
-
-	return nil
-}
-
-// Removes the overlayfs top mount
-func removeTopMount(ci *cloneInfo) error {
-	return unix.Unmount(ci.topMount.mergedDir, unix.MNT_DETACH)
+	return unix.Unmount(ci.ovfsMount.mergedDir, unix.MNT_DETACH)
 }
 
 // Bind-mounts the cloned rootfs over the original rootfs. Adds the new mounts
@@ -203,12 +152,13 @@ func bindOrigRootfs(ci *cloneInfo) error {
 		return fmt.Errorf("failed to parse overlayfs mount options for mountpoint %s", origRootfs)
 	}
 
-	// Bind mount the top mount's merged and diff dirs over the orig rootfs;
+	// Bind mount the bottom mount's merged and diff dirs over the orig rootfs;
 	// these bind mounts are kept when the container is stopped, and only deleted
 	// when the container is removed. They ensure that higher level operations that operate on
 	// the container's original rootfs work (e.g., docker commit, docker build, docker cp).
-	bindMounts = append(bindMounts, bindMnt{src: ci.topMount.mergedDir, dst: origRootfs})
-	bindMounts = append(bindMounts, bindMnt{src: ci.topMount.diffDir, dst: origDiffDir})
+	bindMounts = append(bindMounts, bindMnt{src: ci.ovfsMount.mergedDir, dst: origRootfs})
+	bindMounts = append(bindMounts, bindMnt{src: ci.ovfsMount.diffDir, dst: origDiffDir})
+	bindMounts = append(bindMounts, bindMnt{src: ci.ovfsMount.workDir, dst: origWorkDir})
 
 	if err := bindMountOverOrigRootfs(bindMounts); err != nil {
 		return err
@@ -357,24 +307,10 @@ func doChown(ci *cloneInfo, uidOffset, gidOffset int32) error {
 		return err
 	}
 
-	if err := removeTopMount(ci); err != nil {
-		return err
-	}
-
 	// chown the bottom ovfs mount (fast because metacopy=on is set on it)
-	if err := sh.ShiftIdsWithChown(ci.bottomMount.mergedDir, uidOffset, gidOffset); err != nil {
+	if err := sh.ShiftIdsWithChown(ci.ovfsMount.mergedDir, uidOffset, gidOffset); err != nil {
 		return fmt.Errorf("failed to chown cloned rootfs bottom mount at %s by offset %d, %d: %s",
-			ci.bottomMount.mergedDir, uidOffset, gidOffset, err)
-	}
-
-	// chown the top ovfs mount (fast because the chown is on the diff dir, not on the merged dir)
-	if err := sh.ShiftIdsWithChown(ci.topMount.diffDir, uidOffset, gidOffset); err != nil {
-		return fmt.Errorf("failed to chown cloned rootfs top mount at %s by offset %d, %d: %s",
-			ci.topMount.diffDir, uidOffset, gidOffset, err)
-	}
-
-	if err := setupTopMount(ci); err != nil {
-		return err
+			ci.ovfsMount.mergedDir, uidOffset, gidOffset, err)
 	}
 
 	if err := bindOrigRootfs(ci); err != nil {
