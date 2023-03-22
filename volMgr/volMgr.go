@@ -54,7 +54,7 @@ type volInfo struct {
 	syncOutPath string      // container path for volume sync-out
 	uid         uint32      // uid owner for container
 	gid         uint32      // gid owner for container
-	shiftUids   bool        // uid(gid) shifting enabled for the volume
+	shiftUids   bool        // chown uid(gid) when copying to/from container rootfs
 	perm        os.FileMode // permissions for the volume
 }
 
@@ -87,7 +87,7 @@ func New(name, hostDir string, sync bool) (intf.VolMgr, error) {
 }
 
 // Implements intf.VolMgr.CreateVol
-func (m *vmgr) CreateVol(id, rootfs, mountpoint string, uid, gid uint32, shiftUids bool, perm os.FileMode) ([]specs.Mount, error) {
+func (m *vmgr) CreateVol(id, rootfs, mountpoint string, uid, gid uint32, chownOnSync bool, perm os.FileMode) ([]specs.Mount, error) {
 	var err error
 
 	volPath := filepath.Join(m.hostDir, id)
@@ -107,11 +107,11 @@ func (m *vmgr) CreateVol(id, rootfs, mountpoint string, uid, gid uint32, shiftUi
 	// path were we want to copy to.
 	syncOutPath := mountPath
 
-	// If the container rootfs is on overlayfs, the syncOutPath can't be the
-	// overlayfs merged dir. That's because sysbox-runc may have remounted that
-	// in the container's mount ns (e.g., when using id-mapping on the rootfs),
-	// so sysbox-mgr won't have access to it. Instead the syncOutPath is the
-	// overlayfs "upper" dir.
+	// If the container rootfs is on overlayfs (common case), the syncOutPath
+	// can't be the overlayfs merged dir. That's because sysbox-runc may have
+	// remounted that in the container's mount ns (e.g., when using id-mapping on
+	// the rootfs), so sysbox-mgr won't have access to it. Instead the
+	// syncOutPath is the overlayfs "upper" dir.
 	if rootfsOnOvfs {
 		syncOutPath = filepath.Join(rootfsOvfsUpper, mountpoint)
 	}
@@ -129,7 +129,7 @@ func (m *vmgr) CreateVol(id, rootfs, mountpoint string, uid, gid uint32, shiftUi
 		syncOutPath: syncOutPath,
 		uid:         uid,
 		gid:         gid,
-		shiftUids:   shiftUids,
+		shiftUids:   chownOnSync,
 		perm:        perm,
 	}
 	m.volTable[id] = vi
@@ -155,7 +155,7 @@ func (m *vmgr) CreateVol(id, rootfs, mountpoint string, uid, gid uint32, shiftUi
 	if m.sync {
 		// Sync the contents of container's mountpoint to the newly created volume ("sync-in")
 		if _, err := os.Stat(mountPath); err == nil {
-			if err = m.rsyncVol(mountPath, volPath, uid, gid, shiftUids, shiftUp); err != nil {
+			if err = m.rsyncVol(mountPath, volPath, uid, gid, chownOnSync, shiftUp); err != nil {
 				os.RemoveAll(volPath)
 				return nil, fmt.Errorf("volume sync-in failed: %v", err)
 			}
