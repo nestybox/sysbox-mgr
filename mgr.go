@@ -382,6 +382,7 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		ChownClonedRootfs:       mgr.chownClonedRootfs,
 		RevertClonedRootfsChown: mgr.revertClonedRootfsChown,
 		Pause:                   mgr.pause,
+		Resume:                  mgr.resume,
 	}
 
 	mgr.grpcServer = grpc.NewServerStub(cb)
@@ -567,6 +568,12 @@ func (mgr *SysboxMgr) register(regInfo *ipcLib.RegistrationInfo) (*ipcLib.Contai
 			if err := idShiftUtils.ShiftIdsWithChown(info.rootfsOvfsUpper, uidOffset, gidOffset); err != nil {
 				return nil, err
 			}
+
+			info.rootfsOvfsUpperChowned = false
+
+			mgr.ctLock.Lock()
+			mgr.contTable[id] = info
+			mgr.ctLock.Unlock()
 		}
 
 		logrus.Infof("registered container %s", formatter.ContainerID{id})
@@ -931,7 +938,12 @@ func (mgr *SysboxMgr) removeCont(id string) {
 		formatter.ContainerID{id})
 }
 
-func (mgr *SysboxMgr) reqMounts(id string, uid, gid uint32, reqList []ipcLib.MountReqInfo) ([]specs.Mount, error) {
+func (mgr *SysboxMgr) reqMounts(id string, rootfsUidShiftType idShiftUtils.IDShiftType, reqList []ipcLib.MountReqInfo) ([]specs.Mount, error) {
+
+	var (
+		volChownOnSync bool
+		volUid, volGid uint32
+	)
 
 	// get container info
 	mgr.ctLock.Lock()
@@ -948,7 +960,43 @@ func (mgr *SysboxMgr) reqMounts(id string, uid, gid uint32, reqList []ipcLib.Mou
 		return info.containerMnts, nil
 	}
 
-	// setup dirs that will be bind-mounted into the container
+	// Setup Sysbox's implicit container mounts. The mounts may need chowning
+	// according to the following rules:
+	//
+	// Rootfs        Container Rootfs Owner    Sysbox Special   Sync-in      Sync-out
+	// ID-shift      (Stopped)    (Running)    Mount Owner      Chown        Chown
+	// -------------------------------------------------------------------------------
+	// ID-mapping    root:root    root:root    root:root        None         None
+	// Shiftfs       root:root    root:root    uid:gid          root->uid    uid->root
+	// Chown         root:root    uid:gid      uid:gid          root->uid    uid->root
+	// No-shift      uid:gid      uid:gid      uid:gid          None         None
+
+	switch rootfsUidShiftType {
+
+	case idShiftUtils.IDMappedMount:
+		volChownOnSync = false
+		volUid = 0
+		volGid = 0
+
+	case idShiftUtils.Shiftfs:
+		volChownOnSync = true
+		volUid = info.uidMappings[0].HostID
+		volGid = info.gidMappings[0].HostID
+
+	case idShiftUtils.Chown:
+		volChownOnSync = true
+		volUid = info.uidMappings[0].HostID
+		volGid = info.gidMappings[0].HostID
+
+	case idShiftUtils.NoShift:
+		volChownOnSync = false
+		volUid = info.uidMappings[0].HostID
+		volGid = info.gidMappings[0].HostID
+
+	default:
+		return nil, fmt.Errorf("unexpected rootfs ID shift type: %v", rootfsUidShiftType)
+	}
+
 	containerMnts := []specs.Mount{}
 	reqMntInfos := []mountInfo{}
 	rootfs := info.rootfs
@@ -960,25 +1008,25 @@ func (mgr *SysboxMgr) reqMounts(id string, uid, gid uint32, reqList []ipcLib.Mou
 		switch req.Kind {
 
 		case ipcLib.MntVarLibDocker:
-			m, err = mgr.dockerVolMgr.CreateVol(id, rootfs, req.Dest, uid, gid, req.ShiftUids, 0700)
+			m, err = mgr.dockerVolMgr.CreateVol(id, rootfs, req.Dest, volUid, volGid, volChownOnSync, 0700)
 
 		case ipcLib.MntVarLibKubelet:
-			m, err = mgr.kubeletVolMgr.CreateVol(id, rootfs, req.Dest, uid, gid, req.ShiftUids, 0755)
+			m, err = mgr.kubeletVolMgr.CreateVol(id, rootfs, req.Dest, volUid, volGid, volChownOnSync, 0755)
 
 		case ipcLib.MntVarLibK0s:
-			m, err = mgr.k0sVolMgr.CreateVol(id, rootfs, req.Dest, uid, gid, req.ShiftUids, 0755)
+			m, err = mgr.k0sVolMgr.CreateVol(id, rootfs, req.Dest, volUid, volGid, volChownOnSync, 0755)
 
 		case ipcLib.MntVarLibRancherK3s:
-			m, err = mgr.k3sVolMgr.CreateVol(id, rootfs, req.Dest, uid, gid, req.ShiftUids, 0755)
+			m, err = mgr.k3sVolMgr.CreateVol(id, rootfs, req.Dest, volUid, volGid, volChownOnSync, 0755)
 
 		case ipcLib.MntVarLibRancherRke2:
-			m, err = mgr.rke2VolMgr.CreateVol(id, rootfs, req.Dest, uid, gid, req.ShiftUids, 0755)
+			m, err = mgr.rke2VolMgr.CreateVol(id, rootfs, req.Dest, volUid, volGid, volChownOnSync, 0755)
 
 		case ipcLib.MntVarLibBuildkit:
-			m, err = mgr.buildkitVolMgr.CreateVol(id, rootfs, req.Dest, uid, gid, req.ShiftUids, 0755)
+			m, err = mgr.buildkitVolMgr.CreateVol(id, rootfs, req.Dest, volUid, volGid, volChownOnSync, 0755)
 
 		case ipcLib.MntVarLibContainerdOvfs:
-			m, err = mgr.containerdVolMgr.CreateVol(id, rootfs, req.Dest, uid, gid, req.ShiftUids, 0700)
+			m, err = mgr.containerdVolMgr.CreateVol(id, rootfs, req.Dest, volUid, volGid, volChownOnSync, 0700)
 
 		default:
 			err = fmt.Errorf("invalid mount request type: %s", req.Kind)
@@ -1328,11 +1376,12 @@ func (mgr *SysboxMgr) pause(id string) error {
 			formatter.ContainerID{id})
 	}
 
-	// If the rootfs is ID-mapped and on overlayfs, then chown the upper dir from
-	// [userns-host-ID -> 0] when the container pauses (same as we do during
-	// unregister(); see comment there for more info).
 	if info.rootfsUidShiftType == idShiftUtils.IDMappedMount &&
 		!info.rootfsOvfsUpperChowned {
+
+		// If the rootfs is ID-mapped and on overlayfs, then chown the upper dir from
+		// [userns-host-ID -> 0] when the container pauses (same as we do during
+		// unregister(); see comment there for more info).
 
 		rootfsOnOvfs, err := isRootfsOnOverlayfs(info.rootfs)
 		if err != nil {
@@ -1356,40 +1405,55 @@ func (mgr *SysboxMgr) pause(id string) error {
 
 			info.rootfsOvfsUpper = rootfsOvfsUpper
 			info.rootfsOvfsUpperChowned = true
+
+			mgr.ctLock.Lock()
+			mgr.contTable[id] = info
+			mgr.ctLock.Unlock()
+		}
+	} else if info.rootfsCloned && info.rootfsUidShiftType == idShiftUtils.Chown {
+		if err := mgr.rootfsCloner.RevertChown(id); err != nil {
+			return err
 		}
 	}
 
 	// Request all volume managers to sync back contents to the container's rootfs
-	for _, mnt := range info.reqMntInfos {
-		var err error
+	return mgr.volSyncOut(id, info)
+}
 
-		switch mnt.kind {
+func (mgr *SysboxMgr) resume(id string) error {
 
-		case ipcLib.MntVarLibDocker:
-			err = mgr.dockerVolMgr.SyncOut(id)
+	mgr.ctLock.Lock()
+	info, found := mgr.contTable[id]
+	mgr.ctLock.Unlock()
 
-		case ipcLib.MntVarLibKubelet:
-			err = mgr.kubeletVolMgr.SyncOut(id)
+	if !found {
+		return fmt.Errorf("can't resume container %s; not found in container table",
+			formatter.ContainerID{id})
+	}
 
-		case ipcLib.MntVarLibK0s:
-			err = mgr.k0sVolMgr.SyncOut(id)
+	uidOffset := int32(info.uidMappings[0].HostID)
+	gidOffset := int32(info.gidMappings[0].HostID)
 
-		case ipcLib.MntVarLibRancherK3s:
-			err = mgr.k3sVolMgr.SyncOut(id)
+	if info.rootfsUidShiftType == idShiftUtils.IDMappedMount &&
+		info.rootfsOvfsUpperChowned {
 
-		case ipcLib.MntVarLibRancherRke2:
-			err = mgr.rke2VolMgr.SyncOut(id)
+		// revert the chown of the rootfs upper dir done during pause()
+		logrus.Infof("resume %s: chown rootfs overlayfs upper layer at %s (%d -> %d)",
+			formatter.ContainerID{id}, info.rootfsOvfsUpper, 0, info.uidMappings[0].HostID)
 
-		case ipcLib.MntVarLibBuildkit:
-			err = mgr.buildkitVolMgr.SyncOut(id)
-
-		case ipcLib.MntVarLibContainerdOvfs:
-			err = mgr.containerdVolMgr.SyncOut(id)
-
+		if err := idShiftUtils.ShiftIdsWithChown(info.rootfsOvfsUpper, uidOffset, gidOffset); err != nil {
+			return err
 		}
-		if err != nil {
-			return fmt.Errorf("sync-out for volume backing %s for container %s failed: %v",
-				mnt.kind, formatter.ContainerID{id}, err)
+
+		info.rootfsOvfsUpperChowned = false
+
+		mgr.ctLock.Lock()
+		mgr.contTable[id] = info
+		mgr.ctLock.Unlock()
+
+	} else if info.rootfsCloned && info.rootfsUidShiftType == idShiftUtils.Chown {
+		if err := mgr.rootfsCloner.ChownClone(id, uidOffset, gidOffset); err != nil {
+			return err
 		}
 	}
 

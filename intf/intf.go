@@ -52,9 +52,9 @@ type VolMgr interface {
 	// 'rootfs' is the absolute path the container's rootfs.
 	// 'mountpoint' is the volume's mountpoint (relative to the container's rootfs)
 	// 'uid' and 'gid' are the uid(gid) of the container root process in the host's namespace.
-	// 'shiftUids' indicates if sysbox-runc is using uid-shifting for the container.
+	// 'chownOnSync' indicates if the volMgr should chown when copying to/from the container's rootfs
 	// 'perm' indicates the permissions for the created volume.
-	CreateVol(id, rootfs, mountpoint string, uid, gid uint32, shiftUids bool, perm os.FileMode) ([]specs.Mount, error)
+	CreateVol(id, rootfs, mountpoint string, uid, gid uint32, chownOnSync bool, perm os.FileMode) ([]specs.Mount, error)
 
 	// Destroys a volume for the container with the given 'id'.
 	DestroyVol(id string) error
