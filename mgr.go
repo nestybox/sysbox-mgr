@@ -1367,6 +1367,8 @@ func (mgr *SysboxMgr) getKernelHeaderSoftlink(rootfs string) ([]configs.FsEntry,
 
 func (mgr *SysboxMgr) pause(id string) error {
 
+	logrus.Debugf("pausing %s", formatter.ContainerID{id})
+
 	mgr.ctLock.Lock()
 	info, found := mgr.contTable[id]
 	mgr.ctLock.Unlock()
@@ -1417,10 +1419,19 @@ func (mgr *SysboxMgr) pause(id string) error {
 	}
 
 	// Request all volume managers to sync back contents to the container's rootfs
-	return mgr.volSyncOut(id, info)
+	if err := mgr.volSyncOut(id, info); err != nil {
+		logrus.Warnf("pause failed: %s", err)
+		return err
+	}
+
+	logrus.Debugf("paused %s", formatter.ContainerID{id})
+
+	return nil
 }
 
 func (mgr *SysboxMgr) resume(id string) error {
+
+	logrus.Debugf("resuming %s", formatter.ContainerID{id})
 
 	mgr.ctLock.Lock()
 	info, found := mgr.contTable[id]
@@ -1456,6 +1467,8 @@ func (mgr *SysboxMgr) resume(id string) error {
 			return err
 		}
 	}
+
+	logrus.Debugf("resumed %s", formatter.ContainerID{id})
 
 	return nil
 }
