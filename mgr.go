@@ -256,16 +256,20 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 	shiftfsOnOvfsOk := false
 
 	if !ctx.GlobalBool("disable-shiftfs") {
-
 		shiftfsModPresent, err = linuxUtils.KernelModSupported("shiftfs")
 		if err != nil {
 			return nil, fmt.Errorf("shiftfs kernel module check failed: %v", err)
 		}
 
 		if shiftfsModPresent {
-			shiftfsOk, shiftfsOnOvfsOk, err = checkShiftfsSupport(ctx)
-			if err != nil {
-				return nil, fmt.Errorf("shiftfs check failed: %v", err)
+			if ctx.GlobalBool("disable-shiftfs-precheck") {
+				shiftfsOk = shiftfsModPresent
+				shiftfsOnOvfsOk = shiftfsModPresent
+			} else {
+				shiftfsOk, shiftfsOnOvfsOk, err = checkShiftfsSupport(ctx)
+				if err != nil {
+					return nil, fmt.Errorf("shiftfs check failed: %v", err)
+				}
 			}
 		}
 	}
@@ -294,8 +298,10 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		logrus.Info("Use of shiftfs disabled.")
 	} else {
 		logrus.Infof("Shiftfs module found in kernel: %s", ifThenElse(shiftfsModPresent, "yes", "no"))
-		logrus.Infof("Shiftfs works properly: %s", ifThenElse(mgrCfg.shiftfsOk, "yes", "no"))
-		logrus.Infof("Shiftfs-on-overlayfs works properly: %s", ifThenElse(mgrCfg.shiftfsOnOverlayfsOk, "yes", "no"))
+		if !ctx.GlobalBool("disable-shiftfs-precheck") {
+			logrus.Infof("Shiftfs works properly: %s", ifThenElse(mgrCfg.shiftfsOk, "yes", "no"))
+			logrus.Infof("Shiftfs-on-overlayfs works properly: %s", ifThenElse(mgrCfg.shiftfsOnOverlayfsOk, "yes", "no"))
+		}
 	}
 
 	if ctx.GlobalBool("disable-idmapped-mount") {
