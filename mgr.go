@@ -320,10 +320,6 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		logrus.Info("Rootfs cloning disabled.")
 	}
 
-	if mgrCfg.noShiftfsOnFuse {
-		logrus.Info("Shiftfs on FUSE disabled.")
-	}
-
 	if mgrCfg.ignoreSysfsChown {
 		logrus.Info("Ignoring chown of /sys inside container.")
 	}
