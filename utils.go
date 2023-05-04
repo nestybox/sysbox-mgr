@@ -874,26 +874,63 @@ func getInode(file string) (uint64, error) {
 }
 
 func checkIDMapMountSupport(ctx *cli.Context) (bool, bool, error) {
+	// The sysbox lib dir may have restrictive permissions; loosen those up
+	// temporarily while we perform the shiftfs check.
+	fi, err := os.Stat(sysboxLibDir)
+	if err != nil {
+		return false, false, err
+	}
+	origPerm := fi.Mode()
+
+	if err := os.Chmod(sysboxLibDir, 0755); err != nil {
+		return false, false, fmt.Errorf("failed to chmod %s to 0755: %s", sysboxLibDir, err)
+	}
+
 	IDMapMountOk, err := idMap.IDMapMountSupported(sysboxLibDir)
 	if err != nil {
 		return false, false, fmt.Errorf("failed to check kernel ID-mapping support: %v", err)
 	}
+
 	ovfsOnIDMapMountOk, err := idMap.OverlayfsOnIDMapMountSupported(sysboxLibDir)
 	if err != nil {
 		return false, false, fmt.Errorf("failed to check kernel ID-mapping-on-overlayfs support: %v", err)
 	}
+
+	if err := os.Chmod(sysboxLibDir, origPerm); err != nil {
+		return false, false, fmt.Errorf("failed to chmod %s back to %o: %s", sysboxLibDir, origPerm, err)
+	}
+
 	return IDMapMountOk, ovfsOnIDMapMountOk, nil
 }
 
 func checkShiftfsSupport(ctx *cli.Context) (bool, bool, error) {
+
+	// The sysbox lib dir may have restrictive permissions; loosen those up
+	// temporarily while we perform the shiftfs check.
+	fi, err := os.Stat(sysboxLibDir)
+	if err != nil {
+		return false, false, err
+	}
+	origPerm := fi.Mode()
+
+	if err := os.Chmod(sysboxLibDir, 0755); err != nil {
+		return false, false, fmt.Errorf("failed to chmod %s to 0755: %s", sysboxLibDir, err)
+	}
+
 	shiftfsOk, err := shiftfs.ShiftfsSupported(sysboxLibDir)
 	if err != nil {
 		return false, false, fmt.Errorf("failed to check kernel shiftfs support: %v", err)
 	}
+
 	shiftfsOnOvfsOk, err := shiftfs.ShiftfsSupportedOnOverlayfs(sysboxLibDir)
 	if err != nil {
 		return false, false, fmt.Errorf("failed to check kernel shiftfs-on-overlayfs support: %v", err)
 	}
+
+	if err := os.Chmod(sysboxLibDir, origPerm); err != nil {
+		return false, false, fmt.Errorf("failed to chmod %s back to %o: %s", sysboxLibDir, origPerm, err)
+	}
+
 	return shiftfsOk, shiftfsOnOvfsOk, nil
 }
 
