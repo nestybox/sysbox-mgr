@@ -874,8 +874,10 @@ func getInode(file string) (uint64, error) {
 }
 
 func checkIDMapMountSupport(ctx *cli.Context) (bool, bool, error) {
+
 	// The sysbox lib dir may have restrictive permissions; loosen those up
-	// temporarily while we perform the shiftfs check.
+	// temporarily while we perform the ID-map check since it runs inside a
+	// Linux user-ns.
 	fi, err := os.Stat(sysboxLibDir)
 	if err != nil {
 		return false, false, err
@@ -885,6 +887,10 @@ func checkIDMapMountSupport(ctx *cli.Context) (bool, bool, error) {
 	if err := os.Chmod(sysboxLibDir, 0755); err != nil {
 		return false, false, fmt.Errorf("failed to chmod %s to 0755: %s", sysboxLibDir, err)
 	}
+
+	defer func() () {
+		os.Chmod(sysboxLibDir, origPerm)
+	}()
 
 	IDMapMountOk, err := idMap.IDMapMountSupported(sysboxLibDir)
 	if err != nil {
@@ -906,7 +912,8 @@ func checkIDMapMountSupport(ctx *cli.Context) (bool, bool, error) {
 func checkShiftfsSupport(ctx *cli.Context) (bool, bool, error) {
 
 	// The sysbox lib dir may have restrictive permissions; loosen those up
-	// temporarily while we perform the shiftfs check.
+	// temporarily while we perform the shiftfs check since it runs inside a
+	// Linux user-ns.
 	fi, err := os.Stat(sysboxLibDir)
 	if err != nil {
 		return false, false, err
@@ -916,6 +923,10 @@ func checkShiftfsSupport(ctx *cli.Context) (bool, bool, error) {
 	if err := os.Chmod(sysboxLibDir, 0755); err != nil {
 		return false, false, fmt.Errorf("failed to chmod %s to 0755: %s", sysboxLibDir, err)
 	}
+
+	defer func() () {
+		os.Chmod(sysboxLibDir, origPerm)
+	}()
 
 	shiftfsOk, err := shiftfs.ShiftfsSupported(sysboxLibDir)
 	if err != nil {
