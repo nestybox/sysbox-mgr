@@ -18,16 +18,15 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"path"
 	"sync"
 	"time"
 
 	systemd "github.com/coreos/go-systemd/daemon"
-	"github.com/fsnotify/fsnotify"
 	grpc "github.com/nestybox/sysbox-ipc/sysboxMgrGrpc"
 	ipcLib "github.com/nestybox/sysbox-ipc/sysboxMgrLib"
 	"github.com/nestybox/sysbox-libs/dockerUtils"
+	"github.com/nestybox/sysbox-libs/fileMonitor"
 	"github.com/nestybox/sysbox-libs/formatter"
 	"github.com/nestybox/sysbox-libs/idMap"
 	"github.com/nestybox/sysbox-libs/idShiftUtils"
@@ -128,7 +127,7 @@ type SysboxMgr struct {
 	rootfsTable   map[string]string
 	rtLock        sync.Mutex
 	rootfsMonStop chan int
-	rootfsWatcher *fsnotify.Watcher
+	rootfsMon     *fileMonitor.FileMon
 	exclMntTable  *exclusiveMntTable
 	// tracks containers using the same netns (netns inode -> list of container ids)
 	netnsTable map[uint64][]string
@@ -398,15 +397,19 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 
 func (mgr *SysboxMgr) Start() error {
 
-	// setup rootfs watcher (to detect container removal)
-	w, err := fsnotify.NewWatcher()
-	if err != nil {
-		return fmt.Errorf("failed to setup fsnotify watcher: %v", err)
+	// setup the container rootfs monitor (detects container removal)
+	cfg := &fileMonitor.Cfg{
+		EventBufSize: 10,
+		PollInterval: 1 * time.Millisecond,
 	}
-	mgr.rootfsWatcher = w
+	mon, err := fileMonitor.New(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to setup rootfs monitor: %v", err)
+	}
+	mgr.rootfsMon = mon
 
-	// start the rootfs monitor (listens for rootfs watch events)
-	go mgr.rootfsMon()
+	// start the rootfs monitor thread (listens for rootfsMon events)
+	go mgr.rootfsMonitor()
 
 	systemd.SdNotify(false, systemd.SdNotifyReady)
 
@@ -437,9 +440,7 @@ func (mgr *SysboxMgr) Stop() error {
 	mgr.ctLock.Unlock()
 
 	mgr.rootfsMonStop <- 1
-	if err := mgr.rootfsWatcher.Close(); err != nil {
-		logrus.Warnf("failed to close rootfs watcher: %v", err)
-	}
+	mgr.rootfsMon.Close()
 
 	mgr.dockerVolMgr.SyncOutAndDestroyAll()
 	mgr.kubeletVolMgr.SyncOutAndDestroyAll()
@@ -556,7 +557,7 @@ func (mgr *SysboxMgr) register(regInfo *ipcLib.RegistrationInfo) (*ipcLib.Contai
 		if info.origRootfs != "" {
 			// remove the container's rootfs watch
 			origRootfs := sanitizeRootfs(id, info.origRootfs)
-			mgr.rootfsWatcher.Remove(origRootfs)
+			mgr.rootfsMon.Remove(origRootfs)
 			mgr.rtLock.Lock()
 			delete(mgr.rootfsTable, origRootfs)
 			mgr.rtLock.Unlock()
@@ -785,24 +786,9 @@ func (mgr *SysboxMgr) unregister(id string) error {
 	// setup a rootfs watch (allows us to get notified when the container's rootfs is removed)
 	if info.origRootfs != "" {
 		origRootfs := sanitizeRootfs(id, info.origRootfs)
-
 		mgr.rtLock.Lock()
 		mgr.rootfsTable[origRootfs] = id
-		mgr.rootfsWatcher.Add(origRootfs)
-
-		// It may be the case that original rootfs has been deleted by the time we
-		// tell the rootfsWatcher, which means the watcher won't catch the rootfs
-		// removal event. In this case, let's cancel the watch event and remove
-		// the sysbox-mgr state for the container.
-
-		if _, err := os.Stat(origRootfs); os.IsNotExist(err) {
-			delete(mgr.rootfsTable, origRootfs)
-			mgr.rootfsWatcher.Remove(origRootfs)
-			mgr.rtLock.Unlock()
-			mgr.removeCont(id)
-			return nil
-		}
-
+		mgr.rootfsMon.Add(origRootfs)
 		mgr.rtLock.Unlock()
 		logrus.Debugf("added fs watch on %s", origRootfs)
 	}
@@ -847,32 +833,29 @@ func (mgr *SysboxMgr) volSyncOut(id string, info containerInfo) error {
 }
 
 // rootfs monitor thread: checks for rootfs removal event and removes container state.
-func (mgr *SysboxMgr) rootfsMon() {
+func (mgr *SysboxMgr) rootfsMonitor() {
 	logrus.Debugf("rootfsMon starting ...")
-
 	for {
 		select {
-		case event := <-mgr.rootfsWatcher.Events:
-			if event.Op&fsnotify.Remove == fsnotify.Remove {
-				rootfs := event.Name
+		case events := <-mgr.rootfsMon.Events():
+			for _, e := range events {
+				rootfs := e.Filename
+				if e.Err != nil {
+					logrus.Warnf("rootfsMon: container rootfs watch error on %s", rootfs)
+					continue
+				}
 				mgr.rtLock.Lock()
 				id, found := mgr.rootfsTable[rootfs]
 				if !found {
-					// ignore the event: it's either for a file or sub-dir of a
-					// container's rootfs, or for the rootfs itself but the event was
-					// canceled (see unregister()).
+					logrus.Warnf("rootfsMon: event on unknown container rootfs %s", rootfs)
 					mgr.rtLock.Unlock()
-					break
+					continue
 				}
-				logrus.Debugf("rootfsMon: rm on %s", rootfs)
+				logrus.Debugf("rootfsMon: detected removal of container rootfs %s", rootfs)
 				delete(mgr.rootfsTable, rootfs)
 				mgr.rtLock.Unlock()
-				mgr.rootfsWatcher.Remove(rootfs)
 				mgr.removeCont(id)
 			}
-
-		case err := <-mgr.rootfsWatcher.Errors:
-			logrus.Errorf("rootfsMon: rootfs watch error: %v", err)
 
 		case <-mgr.rootfsMonStop:
 			logrus.Debugf("rootfsMon exiting ...")

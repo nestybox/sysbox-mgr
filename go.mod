@@ -9,6 +9,7 @@ require (
 	github.com/google/uuid v1.1.2
 	github.com/nestybox/sysbox-ipc v0.0.0-00010101000000-000000000000
 	github.com/nestybox/sysbox-libs/dockerUtils v0.0.0-00010101000000-000000000000
+	github.com/nestybox/sysbox-libs/fileMonitor v0.0.0-00010101000000-000000000000
 	github.com/nestybox/sysbox-libs/formatter v0.0.0-20211230192847-357e78e444bd
 	github.com/nestybox/sysbox-libs/idMap v0.0.0-00010101000000-000000000000
 	github.com/nestybox/sysbox-libs/idShiftUtils v0.0.0-00010101000000-000000000000
@@ -21,12 +22,13 @@ require (
 	github.com/opencontainers/runc v1.1.4
 	github.com/opencontainers/runtime-spec v1.0.3-0.20200929063507-e6143ca7d51d
 	github.com/pkg/profile v1.5.0
-	github.com/sirupsen/logrus v1.9.0
+	github.com/sirupsen/logrus v1.9.1
 	github.com/urfave/cli v1.22.1
 	golang.org/x/sys v0.0.0-20220722155257-8c9f86f7a55f
 )
 
 require (
+	github.com/Azure/go-ansiterm v0.0.0-20230124172434-306776ec8161 // indirect
 	github.com/Microsoft/go-winio v0.4.16 // indirect
 	github.com/containerd/containerd v1.4.12 // indirect
 	github.com/coreos/go-systemd/v22 v22.1.0 // indirect
@@ -58,6 +60,7 @@ replace (
 	github.com/nestybox/sysbox-ipc => ../sysbox-ipc
 	github.com/nestybox/sysbox-libs/capability => ../sysbox-libs/capability
 	github.com/nestybox/sysbox-libs/dockerUtils => ../sysbox-libs/dockerUtils
+	github.com/nestybox/sysbox-libs/fileMonitor => ../sysbox-libs/fileMonitor
 	github.com/nestybox/sysbox-libs/formatter => ../sysbox-libs/formatter
 	github.com/nestybox/sysbox-libs/idMap => ../sysbox-libs/idMap
 	github.com/nestybox/sysbox-libs/idShiftUtils => ../sysbox-libs/idShiftUtils
