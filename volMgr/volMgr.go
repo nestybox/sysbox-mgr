@@ -152,13 +152,11 @@ func (m *vmgr) CreateVol(id, rootfs, mountpoint string, uid, gid uint32, chownOn
 		return nil, fmt.Errorf("failed to set ownership of volume %v: %v", volPath, err)
 	}
 
-	if m.sync {
-		// Sync the contents of container's mountpoint to the newly created volume ("sync-in")
-		if _, err := os.Stat(mountPath); err == nil {
-			if err = m.rsyncVol(mountPath, volPath, uid, gid, chownOnSync, shiftUp); err != nil {
-				os.RemoveAll(volPath)
-				return nil, fmt.Errorf("volume sync-in failed: %v", err)
-			}
+	// Sync the contents of container's mountpoint to the newly created volume ("sync-in")
+	if _, err := os.Stat(mountPath); err == nil {
+		if err = m.rsyncVol(mountPath, volPath, uid, gid, chownOnSync, shiftUp); err != nil {
+			os.RemoveAll(volPath)
+			return nil, fmt.Errorf("volume sync-in failed: %v", err)
 		}
 	}
 

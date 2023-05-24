@@ -124,7 +124,7 @@ func main() {
 		},
 		cli.BoolFlag{
 			Name:  "disable-inner-image-preload",
-			Usage: "Disables the Sysbox feature that allows users to preload inner container images into system container images (e.g., via Docker commit or build); this makes container start/stop faster (default = false)",
+			Usage: "Disables the Sysbox feature that allows users to preload inner container images into system container images (e.g., via Docker commit or build); this makes container stop faster; running system container images that come preloaded with inner container images continue to work fine; (default = false)",
 		},
 		cli.BoolFlag{
 			Name:  "ignore-sysfs-chown",
