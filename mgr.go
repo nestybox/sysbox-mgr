@@ -83,6 +83,7 @@ type containerInfo struct {
 	rootfsCloned           bool
 	origRootfs             string // if rootfs was cloned, this is the original rootfs
 	rootfsUidShiftType     idShiftUtils.IDShiftType
+	rootfsOnOvfs           bool
 	rootfsOvfsUpper        string
 	rootfsOvfsUpperChowned bool
 }
@@ -506,6 +507,13 @@ func (mgr *SysboxMgr) register(regInfo *ipcLib.RegistrationInfo) (*ipcLib.Contai
 		info.origRootfs = rootfs
 	}
 
+	rootfsOnOvfs, err := isRootfsOnOverlayfs(rootfs)
+	if err != nil {
+		mgr.ctLock.Unlock()
+		return nil, err
+	}
+
+	info.rootfsOnOvfs = rootfsOnOvfs
 	info.netns = netns
 	info.userns = userns
 
@@ -563,26 +571,6 @@ func (mgr *SysboxMgr) register(regInfo *ipcLib.RegistrationInfo) (*ipcLib.Contai
 			mgr.rtLock.Unlock()
 			logrus.Debugf("removed fs watch on %s", origRootfs)
 		}
-
-		// Revert any chown of the rootfs overlay upper dir done during unregister/pause.
-		if info.rootfsOvfsUpperChowned {
-			uidOffset := int32(info.uidMappings[0].HostID)
-			gidOffset := int32(info.gidMappings[0].HostID)
-
-			logrus.Infof("restart %s: chown rootfs overlayfs upper layer at %s (%d -> %d)",
-				formatter.ContainerID{id}, info.rootfsOvfsUpper, 0, info.uidMappings[0].HostID)
-
-			if err := idShiftUtils.ShiftIdsWithChown(info.rootfsOvfsUpper, uidOffset, gidOffset); err != nil {
-				return nil, err
-			}
-
-			info.rootfsOvfsUpperChowned = false
-
-			mgr.ctLock.Lock()
-			mgr.contTable[id] = info
-			mgr.ctLock.Unlock()
-		}
-
 		logrus.Infof("registered container %s", formatter.ContainerID{id})
 	} else {
 		logrus.Infof("registered new container %s", formatter.ContainerID{id})
@@ -627,6 +615,19 @@ func (mgr *SysboxMgr) update(updateInfo *ipcLib.UpdateInfo) error {
 	if !found {
 		return fmt.Errorf("can't update container %s; not found in container table",
 			formatter.ContainerID{id})
+	}
+
+	// If the container's rootfs is on overlayfs and it's ID-mapped, then
+	// sysbox-runc will chown the upper layer as it can't be ID-mapped (overlayfs
+	// does not support it). Track this fact so we can revert that chown when
+	// the container is stopped or paused.
+	if info.rootfsOnOvfs && rootfsUidShiftType == idShiftUtils.IDMappedMount {
+		rootfsOvfsUpper, err := getRootfsOverlayUpperLayer(info.rootfs)
+		if err != nil {
+			return nil
+		}
+		info.rootfsOvfsUpper = rootfsOvfsUpper
+		info.rootfsOvfsUpperChowned = true
 	}
 
 	if info.netns == "" && netns != "" {
@@ -690,39 +691,21 @@ func (mgr *SysboxMgr) unregister(id string) error {
 	}
 
 	// If the rootfs is ID-mapped and on overlayfs, then chown the upper dir from
-	// [userns-host-ID -> 0] when the container stops, as otherwise the upper dir
-	// will have the host uid:gid assigned to the container when it restarts
-	// (because overlayfs does not support ID-mapping the upper dir). Skip if the
-	// container will be removed or the chown was done in pause() already.
+	// [userns-host-ID -> 0] when the container stops (i.e., revert uid:gid to
+	// it's original). This way snapshots of the container rootfs (e.g., docker
+	// commit or docker build) will capture the correct uid:gid.
 
-	if !info.rootfsOvfsUpperChowned &&
-		!info.autoRemove &&
-		info.rootfsUidShiftType == idShiftUtils.IDMappedMount {
+	if info.rootfsOvfsUpperChowned && !info.autoRemove {
+		uidOffset := -int32(info.uidMappings[0].HostID)
+		gidOffset := -int32(info.gidMappings[0].HostID)
 
-		rootfsOnOvfs, err := isRootfsOnOverlayfs(info.rootfs)
-		if err != nil {
+		logrus.Infof("unregister %s: chown rootfs overlayfs upper layer at %s (%d -> %d)",
+			formatter.ContainerID{id}, info.rootfsOvfsUpper, info.uidMappings[0].HostID, 0)
+
+		if err := idShiftUtils.ShiftIdsWithChown(info.rootfsOvfsUpper, uidOffset, gidOffset); err != nil {
 			return err
 		}
-
-		if rootfsOnOvfs {
-			rootfsOvfsUpper, err := getRootfsOverlayUpperLayer(info.rootfs)
-			if err != nil {
-				return err
-			}
-
-			uidOffset := -int32(info.uidMappings[0].HostID)
-			gidOffset := -int32(info.gidMappings[0].HostID)
-
-			logrus.Infof("unregister %s: chown rootfs overlayfs upper layer at %s (%d -> %d)",
-				formatter.ContainerID{id}, rootfsOvfsUpper, info.uidMappings[0].HostID, 0)
-
-			if err := idShiftUtils.ShiftIdsWithChown(rootfsOvfsUpper, uidOffset, gidOffset); err != nil {
-				return err
-			}
-
-			info.rootfsOvfsUpper = rootfsOvfsUpper
-			info.rootfsOvfsUpperChowned = true
-		}
+		info.rootfsOvfsUpperChowned = false
 	}
 
 	// revert mount prep actions
@@ -1367,40 +1350,27 @@ func (mgr *SysboxMgr) pause(id string) error {
 			formatter.ContainerID{id})
 	}
 
-	if info.rootfsUidShiftType == idShiftUtils.IDMappedMount &&
-		!info.rootfsOvfsUpperChowned {
+	// If the rootfs is ID-mapped and on overlayfs, then chown the upper dir from
+	// [userns-host-ID -> 0] when the container pauses (same as we do during
+	// unregister(); see comment there for more info).
 
-		// If the rootfs is ID-mapped and on overlayfs, then chown the upper dir from
-		// [userns-host-ID -> 0] when the container pauses (same as we do during
-		// unregister(); see comment there for more info).
+	if info.rootfsOvfsUpperChowned {
+		uidOffset := -int32(info.uidMappings[0].HostID)
+		gidOffset := -int32(info.gidMappings[0].HostID)
 
-		rootfsOnOvfs, err := isRootfsOnOverlayfs(info.rootfs)
-		if err != nil {
+		logrus.Infof("pause %s: chown rootfs overlayfs upper layer at %s (%d -> %d)",
+			formatter.ContainerID{id}, info.rootfsOvfsUpper, info.uidMappings[0].HostID, 0)
+
+		if err := idShiftUtils.ShiftIdsWithChown(info.rootfsOvfsUpper, uidOffset, gidOffset); err != nil {
 			return err
 		}
-		if rootfsOnOvfs {
-			rootfsOvfsUpper, err := getRootfsOverlayUpperLayer(info.rootfs)
-			if err != nil {
-				return err
-			}
 
-			uidOffset := -int32(info.uidMappings[0].HostID)
-			gidOffset := -int32(info.gidMappings[0].HostID)
+		info.rootfsOvfsUpperChowned = false
 
-			logrus.Infof("pause %s: chown rootfs overlayfs upper layer at %s (%d -> %d)",
-				formatter.ContainerID{id}, rootfsOvfsUpper, info.uidMappings[0].HostID, 0)
+		mgr.ctLock.Lock()
+		mgr.contTable[id] = info
+		mgr.ctLock.Unlock()
 
-			if err := idShiftUtils.ShiftIdsWithChown(rootfsOvfsUpper, uidOffset, gidOffset); err != nil {
-				return err
-			}
-
-			info.rootfsOvfsUpper = rootfsOvfsUpper
-			info.rootfsOvfsUpperChowned = true
-
-			mgr.ctLock.Lock()
-			mgr.contTable[id] = info
-			mgr.ctLock.Unlock()
-		}
 	} else if info.rootfsCloned && info.rootfsUidShiftType == idShiftUtils.Chown {
 		if err := mgr.rootfsCloner.RevertChown(id); err != nil {
 			return err
@@ -1434,10 +1404,14 @@ func (mgr *SysboxMgr) resume(id string) error {
 	uidOffset := int32(info.uidMappings[0].HostID)
 	gidOffset := int32(info.gidMappings[0].HostID)
 
-	if info.rootfsUidShiftType == idShiftUtils.IDMappedMount &&
-		info.rootfsOvfsUpperChowned {
+	// If the rootfs is ID-mapped and on overlayfs, then chown the upper dir from
+	// [0 -> userns-host-ID] when the container resumes (i.e., opposite of what
+	// we do in pause()).
 
-		// revert the chown of the rootfs upper dir done during pause()
+	if info.rootfsUidShiftType == idShiftUtils.IDMappedMount &&
+		info.rootfsOnOvfs {
+
+		// chown the rootfs upper dir (same as we do during update()).
 		logrus.Infof("resume %s: chown rootfs overlayfs upper layer at %s (%d -> %d)",
 			formatter.ContainerID{id}, info.rootfsOvfsUpper, 0, info.uidMappings[0].HostID)
 
@@ -1445,7 +1419,7 @@ func (mgr *SysboxMgr) resume(id string) error {
 			return err
 		}
 
-		info.rootfsOvfsUpperChowned = false
+		info.rootfsOvfsUpperChowned = true
 
 		mgr.ctLock.Lock()
 		mgr.contTable[id] = info
