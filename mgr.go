@@ -401,7 +401,7 @@ func (mgr *SysboxMgr) Start() error {
 	// setup the container rootfs monitor (detects container removal)
 	cfg := &fileMonitor.Cfg{
 		EventBufSize: 10,
-		PollInterval: 1 * time.Millisecond,
+		PollInterval: 50 * time.Millisecond,
 	}
 	mon, err := fileMonitor.New(cfg)
 	if err != nil {
