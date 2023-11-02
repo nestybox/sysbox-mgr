@@ -372,3 +372,73 @@ func TestGetLibModMounts(t *testing.T) {
 		t.Errorf("cfgLibModMount: failed basic mount test")
 	}
 }
+
+func TestFindSubPaths(t *testing.T) {
+	paths := []string{
+		"/my/prefix/a/b",
+		"/my/prefix/a/b/c/d",
+		"/my/prefix/a/b/c",
+		"/my/prefix/a/b/c/d/e",
+		"/my/prefix/x/y",
+		"/my/prefix/x/y/z",
+	}
+
+	prefix := "/my/prefix"
+	subpaths := findSubPaths(paths, prefix)
+
+	for k, v := range subpaths {
+		if k != "/my/prefix/a" && k != "/my/prefix/x" {
+			t.Errorf("Unexpected key in subpath map: %s", k)
+		}
+		if k == "/my/prefix/a" && len(v) != 4 ||
+			k == "/my/prefix/x" && len(v) != 2 {
+			t.Errorf("Unexpected len(val) in subpath map for %s: %v", k, v)
+		}
+		//t.Logf("OK: %s: %v", k, v)
+	}
+
+	prefix = ""
+	subpaths = findSubPaths(paths, prefix)
+	for k, v := range subpaths {
+		if k != "/my" {
+			t.Errorf("Unexpected key in subpath map: %s", k)
+		}
+		if len(v) != len(paths) {
+			t.Errorf("Unexpected len(val) in subpath map: want %d, got %d", len(paths), len(v))
+		}
+		//t.Logf("OK: %s: %v", k, v)
+	}
+
+}
+
+func TestLongestCommonPath(t *testing.T) {
+	paths := []string{
+		"/my/prefix/a/b",
+		"/my/prefix/a/b/c/d",
+		"/my/prefix/a/b/c",
+		"/my/prefix/a/b/c/d/e",
+		"/my/prefix/d/e/f/g",
+		"/my/prefix/d/e/f/g/h/i/j/k",
+		"/my/prefix/d/e/f/g/h/i",
+		"/my/prefix/d/e/f/g/h/i/j",
+	}
+
+	prefix := "/my/prefix"
+	subpaths := findSubPaths(paths, prefix)
+
+	for k, v := range subpaths {
+		if k != "/my/prefix/a" && k != "/my/prefix/d" {
+			t.Errorf("Unexpected key in subpath map: %s", k)
+		}
+
+		lcp := longestCommonPath(v)
+
+		if k == "/my/prefix/a" && lcp != "/my/prefix/a/b" {
+			t.Errorf("Unexpected lcp; want \"/my/prefix/a/b\", got \"%s\"", lcp)
+		}
+		if k == "/my/prefix/d" && lcp != "/my/prefix/d/e/f/g" {
+			t.Errorf("Unexpected lcp; want \"/my/prefix/d/e/f\", got \"%s\"", lcp)
+		}
+		//t.Logf("OK: k = %s, lcp = %s", k, lcp)
+	}
+}

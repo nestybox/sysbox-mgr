@@ -591,7 +591,7 @@ func getLinuxHeaderMounts(kernelHdrPath string) ([]specs.Mount, error) {
 		"bind",
 		[]string{"ro", "rbind", "rprivate"},
 		true,
-		[]string{"/usr/src"},
+		"/usr/src",
 	)
 	if err != nil {
 		return nil,
@@ -626,7 +626,9 @@ func getLibModMounts() ([]specs.Mount, error) {
 		path,
 		path,
 		"bind",
-		[]string{"ro", "rbind", "rprivate"}, false, []string{"/usr/src"},
+		[]string{"ro", "rbind", "rprivate"},
+		false,
+		"/usr/src",
 	)
 
 	if err != nil {
@@ -641,7 +643,7 @@ func getLibModMounts() ([]specs.Mount, error) {
 // options. 'source' must be an absolute path. 'dest' is absolute with respect to the
 // container's rootfs. If followSymlinks is true, this function follows symlinks under the
 // source path and returns additional mount specs to ensure the symlinks are valid at the
-// destination. If symlinkFilt is not empty, only symlinks that resolve to paths that
+// destination. If filter is not empty, only symlinks that resolve to paths that
 // are prefixed by the symlinkFilt strings are allowed.
 func createMountSpec(
 	source string,
@@ -649,7 +651,7 @@ func createMountSpec(
 	mountType string,
 	mountOpt []string,
 	followSymlinks bool,
-	symlinkFilt []string) ([]specs.Mount, error) {
+	filter string) ([]specs.Mount, error) {
 
 	mounts := []specs.Mount{}
 	m := specs.Mount{
@@ -660,52 +662,84 @@ func createMountSpec(
 	}
 	mounts = append(mounts, m)
 
-	if followSymlinks {
-		links, err := followSymlinksUnder(source, true)
-		if err != nil {
-			return nil, fmt.Errorf("failed to follow symlinks under %s: %v", source, err)
+	if !followSymlinks {
+		return mounts, nil
+	}
+
+	// Follow symlinks under source, and add create mount specs for the host dirs
+	// pointed to by the symlinks.
+	links, err := followSymlinksUnder(source, true)
+	if err != nil {
+		return nil, fmt.Errorf("failed to follow symlinks under %s: %v", source, err)
+	}
+
+	// apply symlink filtering
+	if filter != "" {
+		filter = filepath.Clean(filter)
+		links = libutils.StringSliceRemoveMatch(links, func(s string) bool {
+			if strings.HasPrefix(s, filter+"/") {
+				return false
+			}
+			return true
+		})
+	}
+
+	if len(links) == 0 {
+		return mounts, nil
+	}
+
+	// Find the longest common path for directories prefixed by the given filter.
+	levelOneSubdirs := findSubPaths(links, filter)
+
+	for _, paths := range levelOneSubdirs {
+		lcp := longestCommonPath(paths)
+		lcp = filepath.Clean(lcp)
+
+		// Skip if we are matching the original (above) mount-spec.
+		// NOTE: this assumes sources = dest in the given mount-spec.
+		if lcp == source && lcp == dest {
+			continue
 		}
 
-		if len(symlinkFilt) == 0 {
-			symlinkFilt = append(symlinkFilt, "")
-		}
-
-		// apply symlink filtering
-		for _, filt := range symlinkFilt {
-			filt = filepath.Clean(filt)
-			filtLinks := libutils.StringSliceRemoveMatch(links, func(s string) bool {
-				if strings.HasPrefix(s, filt+"/") {
-					return false
-				}
-				return true
-			})
-
-			if len(filtLinks) == 0 {
-				continue
+		// if the lcp is underneath the source, ignore it
+		if !strings.HasPrefix(lcp, source+"/") {
+			m := specs.Mount{
+				Source:      lcp,
+				Destination: lcp,
+				Type:        mountType,
+				Options:     mountOpt,
 			}
-
-			lcp := longestCommonPath(filtLinks)
-			lcp = filepath.Clean(lcp)
-
-			// Skip if we are matching the original (above) mount-spec.
-			if lcp == source && lcp == dest {
-				continue
-			}
-
-			// if the lcp is underneath the source, ignore it
-			if !strings.HasPrefix(lcp, source+"/") {
-				m := specs.Mount{
-					Source:      lcp,
-					Destination: lcp,
-					Type:        mountType,
-					Options:     mountOpt,
-				}
-				mounts = append(mounts, m)
-			}
+			mounts = append(mounts, m)
 		}
 	}
 
 	return mounts, nil
+}
+
+// Given a list of filepaths and a prefix, returns the top level files/dirs
+// under that prefix. The top level dirs are stored as keys in a map; the value
+// associated with that key is all the files/dirs under that path.
+func findSubPaths(paths []string, prefix string) map[string][]string {
+	levelOnePaths := make(map[string][]string)
+
+	for _, path := range paths {
+		p := strings.TrimPrefix(path, prefix+"/")
+		comp := strings.Split(p, "/")
+
+		name := "/" + comp[0]
+		if prefix != "" {
+			name = filepath.Join(prefix, comp[0])
+		}
+
+		val, ok := levelOnePaths[name]
+		if !ok {
+			levelOnePaths[name] = []string{path}
+		} else {
+			levelOnePaths[name] = append(val, path)
+		}
+	}
+
+	return levelOnePaths
 }
 
 // finds longest-common-path among the given absolute paths
