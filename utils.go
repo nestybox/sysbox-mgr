@@ -661,7 +661,7 @@ func createMountSpec(
 	mounts = append(mounts, m)
 
 	if followSymlinks {
-		links, err := followSymlinksUnder(source)
+		links, err := followSymlinksUnder(source, true)
 		if err != nil {
 			return nil, fmt.Errorf("failed to follow symlinks under %s: %v", source, err)
 		}
@@ -753,7 +753,7 @@ func longestCommonPath(paths []string) string {
 }
 
 // returns a list of all symbolic links under the given directory
-func followSymlinksUnder(dir string) ([]string, error) {
+func followSymlinksUnder(dir string, skipDangling bool) ([]string, error) {
 
 	// walk dir; if file is symlink (use os.Lstat()), readlink() and add to slice
 	symlinks := []string{}
@@ -762,7 +762,7 @@ func followSymlinksUnder(dir string) ([]string, error) {
 		var (
 			fi       os.FileInfo
 			realpath string
-			link     string
+			linkDest string
 		)
 
 		if path == dir {
@@ -776,15 +776,26 @@ func followSymlinksUnder(dir string) ([]string, error) {
 			return nil
 		}
 
-		link, err = os.Readlink(path)
+		linkDest, err = os.Readlink(path)
 		if err != nil {
 			return fmt.Errorf("failed to resolve symlink at %s: %v", path, err)
 		}
 
-		if filepath.IsAbs(link) {
-			realpath = link
+		if filepath.IsAbs(linkDest) {
+			realpath = linkDest
 		} else {
-			realpath = filepath.Join(filepath.Dir(path), link)
+			realpath = filepath.Join(filepath.Dir(path), linkDest)
+		}
+
+		if skipDangling {
+			_, err = os.Stat(realpath)
+			if err != nil {
+				if os.IsNotExist(err) {
+					return nil
+				} else {
+					return fmt.Errorf("failed to stat %s: %v", realpath, err)
+				}
+			}
 		}
 
 		symlinks = append(symlinks, realpath)
