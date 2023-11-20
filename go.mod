@@ -5,7 +5,6 @@ go 1.18
 require (
 	github.com/coreos/go-systemd v0.0.0-20191104093116-d3cd4ed1dbcf
 	github.com/deckarep/golang-set v1.7.1
-	github.com/fsnotify/fsnotify v1.4.7
 	github.com/google/uuid v1.1.2
 	github.com/nestybox/sysbox-ipc v0.0.0-00010101000000-000000000000
 	github.com/nestybox/sysbox-libs/dockerUtils v0.0.0-00010101000000-000000000000
@@ -20,7 +19,7 @@ require (
 	github.com/nestybox/sysbox-libs/utils v0.0.0-00010101000000-000000000000
 	github.com/nestybox/sysbox-runc v0.0.0-00010101000000-000000000000
 	github.com/opencontainers/runc v1.1.4
-	github.com/opencontainers/runtime-spec v1.0.3-0.20200929063507-e6143ca7d51d
+	github.com/opencontainers/runtime-spec v1.1.1-0.20230823135140-4fec88fd00a4
 	github.com/pkg/profile v1.5.0
 	github.com/sirupsen/logrus v1.9.1
 	github.com/urfave/cli v1.22.1
