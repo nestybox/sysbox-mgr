@@ -130,9 +130,9 @@ func main() {
 			Name:  "ignore-sysfs-chown",
 			Usage: "Ignore chown of /sys inside all Sysbox containers; may be needed to run a few apps that chown /sys inside the container (e.g,. rpm). Causes Sysbox to trap the chown syscall inside the container, slowing it down (default = false).",
 		},
-		cli.BoolTFlag{
+		cli.BoolFlag{
 			Name:  "allow-trusted-xattr",
-			Usage: "Allows the overlayfs trusted.overlay.opaque xattr to be set inside all Sysbox containers; needed when running Docker inside Sysbox on hosts with kernel < 5.11. Causes Sysbox to trap the *xattr syscalls inside the container, slowing it down (default = true).",
+			Usage: "Allows the overlayfs trusted.overlay.opaque xattr to be set inside all Sysbox containers; needed when running Docker inside Sysbox on hosts with kernel < 5.11. Causes Sysbox to trap the *xattr syscalls inside the container, slowing it down (default = false).",
 		},
 		cli.BoolFlag{
 			Name:  "honor-caps",

@@ -282,7 +282,7 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		overlayfsOnIDMapMountOk: ovfsOnIDMapMountOk,
 		noRootfsCloning:         ctx.GlobalBool("disable-rootfs-cloning"),
 		ignoreSysfsChown:        ctx.GlobalBool("ignore-sysfs-chown"),
-		allowTrustedXattr:       ctx.GlobalBoolT("allow-trusted-xattr"),
+		allowTrustedXattr:       ctx.GlobalBool("allow-trusted-xattr"),
 		honorCaps:               ctx.GlobalBool("honor-caps"),
 		syscontMode:             ctx.GlobalBoolT("syscont-mode"),
 		fsuidMapFailOnErr:       ctx.GlobalBool("fsuid-map-fail-on-error"),
@@ -324,8 +324,8 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		logrus.Info("Ignoring chown of /sys inside container.")
 	}
 
-	if !mgrCfg.allowTrustedXattr {
-		logrus.Info("Disallowing trusted.overlay.opaque inside container.")
+	if mgrCfg.allowTrustedXattr {
+		logrus.Info("Allowing trusted.overlay.opaque inside container.")
 	}
 
 	if mgrCfg.honorCaps {
