@@ -104,3 +104,13 @@ type RootfsCloner interface {
 	// Performs cleanup (e.g., removes all clones, unmounts all mounts created by the cloner)
 	RemoveAll()
 }
+
+// The DeviceMgr interface defines the interface exposed by the sysbox-mgr device manager
+type DeviceMgr interface {
+
+	// CreateDevice adds a device to the device manager.
+	CreateDevice(devName, devPath string, major, minor uint32, uid, gid int, mode os.FileMode) error
+
+	// RemoveDevice removes a device from the device manager.
+	RemoveDevice(devName string) error
+}
