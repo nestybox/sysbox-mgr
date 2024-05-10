@@ -690,6 +690,10 @@ func (mgr *SysboxMgr) unregister(id string) error {
 	// [userns-host-ID -> 0] when the container stops (i.e., revert uid:gid to
 	// it's original). This way snapshots of the container rootfs (e.g., docker
 	// commit or docker build) will capture the correct uid:gid.
+	//
+	// TODO: before checking for info.autoRemove, we should ensure that the
+	// autoRemoveCheck() goroutine has run to completion. Otherwise the
+	// value of autoRemove is not guaranteed to be correct.
 
 	if info.rootfsOvfsUpperChowned && !info.autoRemove {
 		uidOffset := -int32(info.uidMappings[0].HostID)
@@ -1056,9 +1060,7 @@ func (mgr *SysboxMgr) autoRemoveCheck(id string) {
 	logrus.Debugf("autoRemoveCheck: Docker query start for %s",
 		formatter.ContainerID{id})
 
-	timeout := time.Duration(3 * time.Second)
-
-	docker, err := dockerUtils.DockerConnect(timeout)
+	docker, err := dockerUtils.DockerConnect()
 	if err != nil {
 		logrus.Debugf("autoRemoveCheck: Docker connection failed for %s: %s",
 			formatter.ContainerID{id}, err)
