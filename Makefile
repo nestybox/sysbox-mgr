@@ -78,7 +78,7 @@ $(SYSMGR_BUILDDIR)/$(SYSMGR_DEBUG_TARGET): $(SYSMGR_SRC) $(SYSMGR_GRPC_SRC) $(SY
 sysbox-mgr-static: $(SYSMGR_BUILDDIR)/$(SYSMGR_STATIC_TARGET)
 
 $(SYSMGR_BUILDDIR)/$(SYSMGR_STATIC_TARGET): $(SYSMGR_SRC) $(SYSMGR_GRPC_SRC) $(SYSLIB_SRC)
-	CGO_ENABLED=1 $(GO_XCOMPILE) $(GO) build -buildvcs=false -trimpath -tags "$(BUILDTAGS) netgo osusergo" \
+	CGO_ENABLED=1 $(GO_XCOMPILE) $(GO) build -buildvcs=false -trimpath -tags "$(BUILDTAGS) netgo" \
 		-installsuffix netgo -ldflags "-w -extldflags -static ${LDFLAGS}" \
 		-o $(SYSMGR_BUILDDIR)/sysbox-mgr
 
