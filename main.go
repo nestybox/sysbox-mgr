@@ -143,6 +143,10 @@ func main() {
 			Usage: "Causes Sysbox to run in \"system container\" mode. In this mode, it sets up the container to run system workloads (e.g., systemd, Docker, Kubernetes, etc.) seamlessly and securely. When set to false, Sysbox operates in \"regular container\" mode where it sets up the container strictly per its OCI spec (usually for microservices), with the exception of the Linux 'user' and 'cgroup' namespaces which Sysbox always enables for extra container isolation. (default = true)",
 		},
 		cli.BoolFlag{
+			Name:  "relaxed-read-only",
+			Usage: "Causes Sysbox to create read-only containers with certain \"mountpoint\" exceptions to allow system workloads operation. (default = false)",
+		},
+		cli.BoolFlag{
 			Name:  "fsuid-map-fail-on-error",
 			Usage: "When set to true, fail to launch a container whenever filesystem uid-mapping (needed for files to show proper ownership inside the container's user-namespace) hits an error; when set to false, launch the container anyway (files may show up owned by nobody:nogroup) (default = false).",
 		},
