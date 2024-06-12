@@ -102,6 +102,7 @@ type mgrConfig struct {
 	fsuidMapFailOnErr       bool
 	noInnerImgPreload       bool
 	noShiftfsOnFuse         bool
+	relaxedReadOnly         bool
 }
 
 type SysboxMgr struct {
@@ -285,6 +286,7 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		allowTrustedXattr:       ctx.GlobalBool("allow-trusted-xattr"),
 		honorCaps:               ctx.GlobalBool("honor-caps"),
 		syscontMode:             ctx.GlobalBoolT("syscont-mode"),
+		relaxedReadOnly:         ctx.GlobalBool("relaxed-read-only"),
 		fsuidMapFailOnErr:       ctx.GlobalBool("fsuid-map-fail-on-error"),
 		noInnerImgPreload:       !syncVolToRootfs,
 		noShiftfsOnFuse:         ctx.GlobalBool("disable-shiftfs-on-fuse"),
@@ -336,6 +338,12 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		logrus.Info("Operating in system container mode.")
 	} else {
 		logrus.Info("Operating in regular container mode.")
+	}
+
+	if mgrCfg.relaxedReadOnly {
+		logrus.Info("Relaxed read-only mode enabled.")
+	} else {
+		logrus.Info("Relaxed read-only mode disabled.")
 	}
 
 	if mgrCfg.fsuidMapFailOnErr {
@@ -589,6 +597,7 @@ func (mgr *SysboxMgr) register(regInfo *ipcLib.RegistrationInfo) (*ipcLib.Contai
 		GidMappings:             info.gidMappings,
 		RootfsUidShiftType:      info.rootfsUidShiftType,
 		NoShiftfsOnFuse:         mgr.mgrCfg.noShiftfsOnFuse,
+		RelaxedReadOnly:         mgr.mgrCfg.relaxedReadOnly,
 	}
 
 	return containerCfg, nil
