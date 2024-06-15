@@ -144,7 +144,7 @@ func main() {
 		},
 		cli.BoolFlag{
 			Name:  "relaxed-read-only",
-			Usage: "Causes Sysbox to create read-only containers with certain \"mountpoint\" exceptions to allow system workloads operation. (default = false)",
+			Usage: "Allows Sysbox to create read-only containers while enabling read-write operations in certain mountpoints within the container. (default = false)",
 		},
 		cli.BoolFlag{
 			Name:  "fsuid-map-fail-on-error",
