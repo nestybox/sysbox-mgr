@@ -324,14 +324,16 @@ func TestGetSubidLimits(t *testing.T) {
 
 	// fake login.defs data
 	fileData := `# some comments
+# a comment with SUB_UID_MIN and SUB_UID_MAX; should be ignored by parser
 some data
 SUB_UID_MIN    100000
 some data
-SUB_UID_MAX\t 600100000
+   SUB_UID_MAX\t 600100000
 some data
+ \t    # another comment with SUB_GID_MIN and SUB_GID_MAX
 SUB_GID_MIN 100000
 some data
-SUB_GID_MAX\t\t 2147483648
+ SUB_GID_MAX\t\t 2147483648
 # some more comments`
 
 	want := []uint64{100000, 600100000, 100000, 2147483648}
