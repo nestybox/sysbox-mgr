@@ -222,8 +222,9 @@ func getSubidLimits(file string) ([]uint64, error) {
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := scanner.Text()
+		line = strings.TrimLeft(line, " \t")
 		for token, pos := range tokens {
-			if strings.Contains(line, token) {
+			if strings.HasPrefix(line, token) {
 				valStr := strings.Fields(line)
 				if len(valStr) < 2 {
 					return limits, fmt.Errorf("failed to parse file %s: line %s: expected two fields, found %d field(s)", file, line, len(valStr))
@@ -933,7 +934,7 @@ func checkIDMapMountSupport(ctx *cli.Context) (bool, bool, error) {
 		return false, false, fmt.Errorf("failed to chmod %s to 0755: %s", sysboxLibDir, err)
 	}
 
-	defer func() () {
+	defer func() {
 		os.Chmod(sysboxLibDir, origPerm)
 	}()
 
@@ -969,7 +970,7 @@ func checkShiftfsSupport(ctx *cli.Context) (bool, bool, error) {
 		return false, false, fmt.Errorf("failed to chmod %s to 0755: %s", sysboxLibDir, err)
 	}
 
-	defer func() () {
+	defer func() {
 		os.Chmod(sysboxLibDir, origPerm)
 	}()
 
