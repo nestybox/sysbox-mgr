@@ -923,7 +923,9 @@ func checkIDMapMountSupport(ctx *cli.Context) (bool, bool, error) {
 
 	// The sysbox lib dir may have restrictive permissions; loosen those up
 	// temporarily while we perform the ID-map check since it runs inside a
-	// Linux user-ns.
+	// Linux user-ns. Note that unlike the shiftfs checker, the ID-map checker
+	// does not create files from within the user-namespace so it does not need
+	// write-other permissions.
 	fi, err := os.Stat(sysboxLibDir)
 	if err != nil {
 		return false, false, err
@@ -957,20 +959,23 @@ func checkIDMapMountSupport(ctx *cli.Context) (bool, bool, error) {
 
 func checkShiftfsSupport(ctx *cli.Context) (bool, bool, error) {
 
-	// The sysbox lib dir may have restrictive permissions; loosen those up
-	// temporarily while we perform the shiftfs check since it runs inside a
-	// Linux user-ns.
+	// The sysbox lib dir may have restrictive permissions; relax those up
+	// temporarily while we perform the shiftfs check because it runs inside a
+	// Linux user-ns. Since the shiftfs checker creates files from within the
+	// user-namespace, we temporarily allow "rwx-other" permissions on the sysbox
+	// lib dir.
 	fi, err := os.Stat(sysboxLibDir)
 	if err != nil {
 		return false, false, err
 	}
 	origPerm := fi.Mode()
 
-	if err := os.Chmod(sysboxLibDir, 0755); err != nil {
-		return false, false, fmt.Errorf("failed to chmod %s to 0755: %s", sysboxLibDir, err)
+	if err := os.Chmod(sysboxLibDir, 0777); err != nil {
+		return false, false, fmt.Errorf("failed to chmod %s to 0777: %s", sysboxLibDir, err)
 	}
 
 	defer func() {
+		// Revert back to the original sysbox lib dir permissions once the shiftfs check is done.
 		os.Chmod(sysboxLibDir, origPerm)
 	}()
 
