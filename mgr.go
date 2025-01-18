@@ -103,6 +103,7 @@ type mgrConfig struct {
 	noInnerImgPreload       bool
 	noShiftfsOnFuse         bool
 	relaxedReadOnly         bool
+	mountBinfmtMisc         bool
 }
 
 type SysboxMgr struct {
@@ -290,6 +291,11 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		fsuidMapFailOnErr:       ctx.GlobalBool("fsuid-map-fail-on-error"),
 		noInnerImgPreload:       !syncVolToRootfs,
 		noShiftfsOnFuse:         ctx.GlobalBool("disable-shiftfs-on-fuse"),
+		mountBinfmtMisc:         ctx.GlobalBoolT("mount-binfmt"),
+	}
+
+	if mgrCfg.mountBinfmtMisc {
+		logrus.Info("Sys container auto-mount of binfmt_misc enabled.")
 	}
 
 	if !mgrCfg.aliasDns {
@@ -1043,6 +1049,31 @@ func (mgr *SysboxMgr) reqMounts(id string, rootfsUidShiftType idShiftUtils.IDShi
 		mgr.ctLock.Lock()
 		mgr.contTable[id] = info
 		mgr.ctLock.Unlock()
+	}
+
+	// Add the binfmt_misc mount
+	if mgr.mgrCfg.mountBinfmtMisc {
+
+		binfmtMiscMount := specs.Mount{
+			Destination: "/proc/sys/fs/binfmt_misc",
+			Source:      "binfmt_misc",
+			Type:        "binfmt_misc",
+			Options:     []string{"noexec", "nosuid", "nodev"},
+		}
+
+		// If the kernel does not support binfmt_misc namespacing, make the mount
+		// read-only because it's global to the host and thus we can't allow
+		// the container to change it.
+		binfmtMiscNamespaced, err := linuxUtils.BinfmtMiscNamespacingSupported()
+		if err != nil {
+			return nil, fmt.Errorf("failed to check kernel support for binfmt_misc namespacing: %v", err)
+		}
+
+		if !binfmtMiscNamespaced {
+			binfmtMiscMount.Options = append(binfmtMiscMount.Options, "ro")
+		}
+
+		containerMnts = append(containerMnts, binfmtMiscMount)
 	}
 
 	// Dispatch a thread that checks if the container will be auto-removed after it stops

@@ -150,6 +150,10 @@ func main() {
 			Name:  "fsuid-map-fail-on-error",
 			Usage: "When set to true, fail to launch a container whenever filesystem uid-mapping (needed for files to show proper ownership inside the container's user-namespace) hits an error; when set to false, launch the container anyway (files may show up owned by nobody:nogroup) (default = false).",
 		},
+		cli.BoolTFlag{
+			Name:  "mount-binfmt",
+			Usage: "When set to true, Sysbox auto-mounts binfmt_misc inside the Sysbox container thus enabling multi-arch support and other use-cases inside the container. If the kernel does not support binfmt_misc namespacing, the mount is read-only and shared with the host, such that the container can leverage the host interpreters but not change them. If the kernel supports binfmt_misc namespacing, the mount is read-write and the container must set up its own binfmt_misc interpreters. (default = true)",
+		},
 	}
 
 	// show-version specialization.
