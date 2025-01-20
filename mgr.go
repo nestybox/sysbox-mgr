@@ -31,6 +31,7 @@ import (
 	"github.com/nestybox/sysbox-libs/idMap"
 	"github.com/nestybox/sysbox-libs/idShiftUtils"
 	"github.com/nestybox/sysbox-libs/linuxUtils"
+	"github.com/nestybox/sysbox-libs/mount"
 	"github.com/nestybox/sysbox-libs/shiftfs"
 	libutils "github.com/nestybox/sysbox-libs/utils"
 	intf "github.com/nestybox/sysbox-mgr/intf"
@@ -1053,27 +1054,45 @@ func (mgr *SysboxMgr) reqMounts(id string, rootfsUidShiftType idShiftUtils.IDShi
 
 	// Add the binfmt_misc mount
 	if mgr.mgrCfg.mountBinfmtMisc {
+		var binfmtMiscMount specs.Mount
 
-		binfmtMiscMount := specs.Mount{
-			Destination: "/proc/sys/fs/binfmt_misc",
-			Source:      "binfmt_misc",
-			Type:        "binfmt_misc",
-			Options:     []string{"noexec", "nosuid", "nodev"},
-		}
-
-		// If the kernel does not support binfmt_misc namespacing, make the mount
-		// read-only because it's global to the host and thus we can't allow
-		// the container to change it.
 		binfmtMiscNamespaced, err := linuxUtils.BinfmtMiscNamespacingSupported()
 		if err != nil {
 			return nil, fmt.Errorf("failed to check kernel support for binfmt_misc namespacing: %v", err)
 		}
 
-		if !binfmtMiscNamespaced {
-			binfmtMiscMount.Options = append(binfmtMiscMount.Options, "ro")
+		if binfmtMiscNamespaced {
+			// The kernel supports binfmt_misc namespacing, so mount it inside the container.
+			binfmtMiscMount = specs.Mount{
+				Destination: "/proc/sys/fs/binfmt_misc",
+				Source:      "binfmt_misc",
+				Type:        "binfmt_misc",
+				Options:     []string{"noexec", "nosuid", "nodev"},
+			}
+			containerMnts = append(containerMnts, binfmtMiscMount)
+		} else {
+			// The kernel does not support binfmt_misc namespacing. check if
+			// binfmt_misc is mounted on the host and if so create a read-only
+			// bind-mount from the host to the container. The mount needs to be
+			// read-only in this case because binfmt_misc is not namespaced so it's
+			// global to the host and thus we can't allow the container to change
+			// it. Also, note that we need a bind-mount because binfmt_misc can't
+			// be mounted from within the container's user-namespace in this case
+			// (EPERM).
+			binfmtMiscMounted, err := mount.IsMountPoint("/proc/sys/fs/binfmt_misc")
+			if err != nil {
+				return nil, fmt.Errorf("failed to check if binfmt_misc is mounted on the host: %v", err)
+			}
+			if binfmtMiscMounted {
+				binfmtMiscMount = specs.Mount{
+					Destination: "/proc/sys/fs/binfmt_misc",
+					Source:      "/proc/sys/fs/binfmt_misc",
+					Type:        "bind",
+					Options:     []string{"ro", "noexec", "nosuid", "nodev"},
+				}
+				containerMnts = append(containerMnts, binfmtMiscMount)
+			}
 		}
-
-		containerMnts = append(containerMnts, binfmtMiscMount)
 	}
 
 	// Dispatch a thread that checks if the container will be auto-removed after it stops
