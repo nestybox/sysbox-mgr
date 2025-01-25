@@ -211,7 +211,13 @@ func main() {
 
 	app.Action = func(ctx *cli.Context) error {
 
-		logrus.Info("Starting ...")
+		logrus.Info("Starting sysbox-mgr")
+		logrus.Infof("Edition: %s", edition)
+		logrus.Infof("Version: %s", version)
+
+		if commitId != "" {
+			logrus.Infof("Commit-ID: %s", commitId)
+		}
 
 		// If requested, launch cpu/mem profiling data collection.
 		profile, err := runProfiler(ctx)
