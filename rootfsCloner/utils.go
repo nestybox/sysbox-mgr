@@ -19,6 +19,7 @@ package rootfsCloner
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	mapset "github.com/deckarep/golang-set"
@@ -102,8 +103,10 @@ func setupBottomMount(ci *cloneInfo) error {
 
 	// Replace the original upperdir and workdir with the bottom mount ones
 	tmpOpt := ""
+	origUpperDir := ""
 	for _, opt := range strings.Split(options, ",") {
 		if strings.Contains(opt, "upperdir=") {
+			origUpperDir = opt
 			opt = "upperdir=" + diffDir
 		} else if strings.Contains(opt, "workdir=") {
 			opt = "workdir=" + workDir
@@ -112,12 +115,81 @@ func setupBottomMount(ci *cloneInfo) error {
 	}
 	options = strings.TrimSuffix(tmpOpt, ",")
 
+	// Sometimes the overlayfs lowerdir options use relative paths (e.g.,
+	// lowerdir=54/fs:44/fs:...) instead of absolute paths (e.g.,
+	// lowerdir=/var/lib/docker/containerd/daemon/io.containerd.snapshotter.v1.overlayfs/snapshots/54/fs:...).
+	//
+	// It usually happens when the lowerdir has a large number of layers such
+	// that using the absolute path for each layer would exceed the number of
+	// characters that the mount syscall accepts in the options parameters.
+	//
+	// Since we are trying to remount the rootfs using the same relative-path
+	// lowerdir option, we need to find out the absolute base path for those
+	// options, so we can chdir to that path and then do the mount with the
+	// relative-path lowerdir option.
+	//
+	// To find out the path we look at the upperdir option, since that usually
+	// is an absolute path. For example, if upperdir=/var/lib/docker/containerd/daemon/io.containerd.snapshotter.v1.overlayfs/snapshots/55/fs
+	// and lowerdir=54/fs:44/fs, then we can infer those lowerdir options have base path
+	// "/var/lib/docker/containerd/daemon/io.containerd.snapshotter.v1.overlayfs/snapshots".
+	//
+	// This assumes of course that upperdir and lowerdir always have the same
+	// common path, and while this is not a requirement of overlayfs, it is
+	// always the case for the container runtimes.
+
+	lowerdirPathsAreAbsolute := true
+	lowerDirSuffixComponents := 0
+	for _, opt := range strings.Split(options, ",") {
+		if strings.Contains(opt, "lowerdir=") {
+			paths := strings.TrimPrefix(opt, "lowerdir=")
+			for _, p := range strings.Split(paths, ":") {
+				if filepath.IsAbs(p) {
+					// If one lowerdir path is absolute, assume all are
+					break
+				} else {
+					// If one lowerdir path is relative, assume all are
+					lowerdirPathsAreAbsolute = false
+					lowerDirSuffixComponents = len(strings.Split(p, "/"))
+					break
+				}
+			}
+		}
+	}
+
+	currDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get curr dir: %s", err)
+	}
+
+	if !lowerdirPathsAreAbsolute {
+		origUpperDir = strings.TrimPrefix(origUpperDir, "upperdir=")
+
+		// remove the last X components of the upperdir path, where X is the
+		// number of path components in the relative lowerdir.
+		absPath := origUpperDir
+		for i := 0; i < lowerDirSuffixComponents; i++ {
+			absPath = filepath.Dir(absPath)
+		}
+
+		// chdir to that path so that the overlayfs mount below works with the
+		// relative lowerdir paths.
+		if err := os.Chdir(absPath); err != nil {
+			return fmt.Errorf("failed to chdir: %s", err)
+		}
+	}
+
 	if err := unix.Mount("overlay", mergedDir, "overlay", uintptr(mntFlags), options); err != nil {
 		return fmt.Errorf("failed to mount overlayfs on %s: %s", mergedDir, err)
 	}
 
 	if err := unix.Mount("", mergedDir, "", uintptr(propFlags), ""); err != nil {
 		return fmt.Errorf("failed to set mount prop flags on %s: %s", mergedDir, err)
+	}
+
+	if !lowerdirPathsAreAbsolute {
+		if err := os.Chdir(currDir); err != nil {
+			return fmt.Errorf("failed to chdir: %s", err)
+		}
 	}
 
 	return nil
