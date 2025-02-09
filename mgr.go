@@ -524,7 +524,10 @@ func (mgr *SysboxMgr) register(regInfo *ipcLib.RegistrationInfo) (*ipcLib.Contai
 			state:        started,
 			mntPrepRev:   []mntPrepRevInfo{},
 			shiftfsMarks: []shiftfs.MountPoint{},
+			rootfs:       rootfs,
+			origRootfs:   rootfs,
 		}
+
 	} else {
 		// re-started container
 		if info.state != stopped {
@@ -533,11 +536,6 @@ func (mgr *SysboxMgr) register(regInfo *ipcLib.RegistrationInfo) (*ipcLib.Contai
 				formatter.ContainerID{id})
 		}
 		info.state = restarted
-	}
-
-	if !info.rootfsCloned {
-		info.rootfs = rootfs
-		info.origRootfs = rootfs
 	}
 
 	rootfsOnOvfs, err := isRootfsOnOverlayfs(rootfs)
@@ -595,15 +593,15 @@ func (mgr *SysboxMgr) register(regInfo *ipcLib.RegistrationInfo) (*ipcLib.Contai
 	mgr.ctLock.Unlock()
 
 	if info.state == restarted {
-		if info.origRootfs != "" {
-			// remove the container's rootfs watch
-			origRootfs := sanitizeRootfs(id, info.origRootfs)
-			mgr.rootfsMon.Remove(origRootfs)
-			mgr.rtLock.Lock()
-			delete(mgr.rootfsTable, origRootfs)
-			mgr.rtLock.Unlock()
-			logrus.Debugf("removed fs watch on %s", origRootfs)
-		}
+		// remove the container's rootfs watch
+		origRootfs := sanitizeRootfs(id, info.origRootfs)
+		mgr.rootfsMon.Remove(origRootfs)
+
+		mgr.rtLock.Lock()
+		delete(mgr.rootfsTable, origRootfs)
+		mgr.rtLock.Unlock()
+
+		logrus.Debugf("removed fs watch on %s", origRootfs)
 		logrus.Infof("registered container %s", formatter.ContainerID{id})
 	} else {
 		logrus.Infof("registered new container %s", formatter.ContainerID{id})
@@ -805,14 +803,12 @@ func (mgr *SysboxMgr) unregister(id string) error {
 	}
 
 	// setup a rootfs watch (allows us to get notified when the container's rootfs is removed)
-	if info.origRootfs != "" {
-		origRootfs := sanitizeRootfs(id, info.origRootfs)
-		mgr.rtLock.Lock()
-		mgr.rootfsTable[origRootfs] = id
-		mgr.rootfsMon.Add(origRootfs)
-		mgr.rtLock.Unlock()
-		logrus.Debugf("added fs watch on %s", origRootfs)
-	}
+	origRootfs := sanitizeRootfs(id, info.origRootfs)
+	mgr.rtLock.Lock()
+	mgr.rootfsTable[origRootfs] = id
+	mgr.rootfsMon.Add(origRootfs)
+	mgr.rtLock.Unlock()
+	logrus.Debugf("added fs watch on %s", origRootfs)
 
 	logrus.Infof("unregistered container %s", formatter.ContainerID{id})
 	return nil
