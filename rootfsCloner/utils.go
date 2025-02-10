@@ -101,14 +101,14 @@ func setupBottomMount(ci *cloneInfo) error {
 	// This gets us the orig rootfs ovfs mount options, and adds metacopy=on to them
 	mntFlags, options, propFlags := getBottomMountOpt(ci.origRootfsMntInfo, []interface{}{"metacopy=on"})
 
-	// Replace the original upperdir and workdir with the bottom mount ones
+	// Remember the original upperdir and workdir but replace them with the bottom mount ones
 	tmpOpt := ""
-	origUpperDir := ""
 	for _, opt := range strings.Split(options, ",") {
 		if strings.Contains(opt, "upperdir=") {
-			origUpperDir = opt
+			ci.origRootfsUpperDir = strings.TrimPrefix(opt, "upperdir=")
 			opt = "upperdir=" + diffDir
 		} else if strings.Contains(opt, "workdir=") {
+			ci.origRootfsWorkDir = strings.TrimPrefix(opt, "workdir=")
 			opt = "workdir=" + workDir
 		}
 		tmpOpt += opt + ","
@@ -162,11 +162,9 @@ func setupBottomMount(ci *cloneInfo) error {
 	}
 
 	if !lowerdirPathsAreAbsolute {
-		origUpperDir = strings.TrimPrefix(origUpperDir, "upperdir=")
-
 		// remove the last X components of the upperdir path, where X is the
 		// number of path components in the relative lowerdir.
-		absPath := origUpperDir
+		absPath := ci.origRootfsUpperDir
 		for i := 0; i < lowerDirSuffixComponents; i++ {
 			absPath = filepath.Dir(absPath)
 		}
