@@ -84,8 +84,10 @@ type ShiftfsMgr interface {
 // The RootfsCloner interface defines the interface exposed by the sysbox-mgr rootfs cloner
 type RootfsCloner interface {
 
-	// Creates a clone of the container's rootfs; returns the path to the cloned rootfs.
-	CreateClone(id, origRootfs string) (string, error)
+	// Creates a clone of the container's rootfs; returns the path to the cloned rootfs as well
+	// as the original's rootfs overlayfs workdir. The latter can be used to watch for container
+	// removal.
+	CreateClone(id, origRootfs string) (string, string, error)
 
 	// Removes a rootfs clone for the given container
 	RemoveClone(id string) error

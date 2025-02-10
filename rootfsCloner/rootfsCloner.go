@@ -25,18 +25,22 @@ import (
 	"github.com/nestybox/sysbox-libs/formatter"
 	"github.com/nestybox/sysbox-libs/mount"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/sys/unix"
 )
 
 const clonerDir string = "rootfs"
 
 type cloneInfo struct {
-	origRootfsMntInfo *mount.Info
-	newRootfsDir      string
-	ovfsMount         ovfsMntInfo
-	bindMounts        []bindMnt
-	chownUidOffset    int32
-	chownGidOffset    int32
-	bindToSelfActive  bool
+	origRootfs         string
+	origRootfsMntInfo  *mount.Info
+	origRootfsUpperDir string
+	origRootfsWorkDir  string
+	newRootfsDir       string
+	ovfsMount          ovfsMntInfo
+	bindMounts         []bindMnt
+	chownUidOffset     int32
+	chownGidOffset     int32
+	bindToSelfActive   bool
 }
 
 type cloner struct {
@@ -63,7 +67,7 @@ func New(hostDir string) *cloner {
 	}
 }
 
-func (c *cloner) CreateClone(id, origRootfs string) (string, error) {
+func (c *cloner) CreateClone(id, origRootfs string) (string, string, error) {
 
 	logrus.Debugf("Prep rootfs cloning for container %s", formatter.ContainerID{id})
 
@@ -73,24 +77,24 @@ func (c *cloner) CreateClone(id, origRootfs string) (string, error) {
 	c.mu.Unlock()
 
 	if found {
-		return "", fmt.Errorf("redundant rootfs clone for container %s",
+		return "", "", fmt.Errorf("redundant rootfs clone for container %s",
 			formatter.ContainerID{id})
 	}
 
 	// Get the mount info for the orig rootfs
 	allMounts, err := mount.GetMounts()
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	origRootfsMntInfo, err := mount.GetMountAt(origRootfs, allMounts)
 	if err != nil {
-		return "", fmt.Errorf("failed to get mount info for mount at %s: %s", origRootfs, err)
+		return "", "", fmt.Errorf("failed to get mount info for mount at %s: %s", origRootfs, err)
 	}
 
 	// We only support cloning of rootfs on overlayfs currently
 	if origRootfsMntInfo.Fstype != "overlay" {
-		return "", fmt.Errorf("rootfs cloning is only supported for overlayfs; rootfs at %s is not on overlayfs", origRootfs)
+		return "", "", fmt.Errorf("rootfs cloning is only supported for overlayfs; rootfs at %s is not on overlayfs", origRootfs)
 	}
 
 	// Create the dir under which we will create the cloned rootfs
@@ -99,14 +103,15 @@ func (c *cloner) CreateClone(id, origRootfs string) (string, error) {
 
 	perm, err := filePerm(origRootfsDir)
 	if err != nil {
-		return "", fmt.Errorf("failed to get permissions for %s: %s", origRootfsDir, err)
+		return "", "", fmt.Errorf("failed to get permissions for %s: %s", origRootfsDir, err)
 	}
 
 	if err := os.MkdirAll(newRootfsDir, perm); err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	ci := &cloneInfo{
+		origRootfs:        origRootfs,
 		origRootfsMntInfo: origRootfsMntInfo,
 		newRootfsDir:      newRootfsDir,
 	}
@@ -120,13 +125,13 @@ func (c *cloner) CreateClone(id, origRootfs string) (string, error) {
 	}
 
 	if err := createNewOvfsDir(ovfsMntInfo); err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	ci.ovfsMount = ovfsMntInfo
 
 	if err := mountClone(ci); err != nil {
-		return "", fmt.Errorf("failed to mount clone for container %s: %s",
+		return "", "", fmt.Errorf("failed to mount clone for container %s: %s",
 			formatter.ContainerID{id}, err)
 	}
 
@@ -134,7 +139,7 @@ func (c *cloner) CreateClone(id, origRootfs string) (string, error) {
 	c.clones[id] = ci
 	c.mu.Unlock()
 
-	return ci.ovfsMount.mergedDir, nil
+	return ci.ovfsMount.mergedDir, ci.origRootfsWorkDir, nil
 }
 
 func (c *cloner) RemoveClone(id string) error {
@@ -158,6 +163,16 @@ func (c *cloner) RemoveClone(id string) error {
 	if err := os.RemoveAll(ci.newRootfsDir); err != nil {
 		return fmt.Errorf("failed to remove clone for container %s: %s",
 			formatter.ContainerID{id}, err)
+	}
+
+	// The rootfs cloning may prevent the higher layer runtime (e.g., Docker)
+	// from removing the container's rootfs, because the cloner creates mounts on
+	// top of it. At this point the container is removed and it's rootfs is empty,
+	// so remove the rootfs and any remaining mounts on it. These are best-effort
+	// operations, no need to check for errors.
+	if _, err := os.Stat(ci.origRootfs); err == nil {
+		unix.Unmount(ci.origRootfs, unix.MNT_DETACH)
+		os.Remove(ci.origRootfs)
 	}
 
 	c.mu.Lock()

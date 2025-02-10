@@ -19,6 +19,7 @@ package main
 import (
 	"fmt"
 	"path"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -81,11 +82,11 @@ type containerInfo struct {
 	gidMappings            []specs.LinuxIDMapping
 	subidAllocated         bool
 	rootfsCloned           bool
-	origRootfs             string // if rootfs was cloned, this is the original rootfs
 	rootfsUidShiftType     idShiftUtils.IDShiftType
 	rootfsOnOvfs           bool
 	rootfsOvfsUpper        string
 	rootfsOvfsUpperChowned bool
+	rmWatchPath            string // the path to watch to detect container removal
 }
 
 type mgrConfig struct {
@@ -519,13 +520,19 @@ func (mgr *SysboxMgr) register(regInfo *ipcLib.RegistrationInfo) (*ipcLib.Contai
 	newContainer := !found
 
 	if newContainer {
-		// new container
+		rootfsOnOvfs, err := isRootfsOnOverlayfs(rootfs)
+		if err != nil {
+			mgr.ctLock.Unlock()
+			return nil, err
+		}
+
 		info = containerInfo{
 			state:        started,
 			mntPrepRev:   []mntPrepRevInfo{},
 			shiftfsMarks: []shiftfs.MountPoint{},
 			rootfs:       rootfs,
-			origRootfs:   rootfs,
+			rmWatchPath:  sanitizeRootfs(id, info.rootfs),
+			rootfsOnOvfs: rootfsOnOvfs,
 		}
 
 	} else {
@@ -538,13 +545,6 @@ func (mgr *SysboxMgr) register(regInfo *ipcLib.RegistrationInfo) (*ipcLib.Contai
 		info.state = restarted
 	}
 
-	rootfsOnOvfs, err := isRootfsOnOverlayfs(rootfs)
-	if err != nil {
-		mgr.ctLock.Unlock()
-		return nil, err
-	}
-
-	info.rootfsOnOvfs = rootfsOnOvfs
 	info.netns = netns
 	info.userns = userns
 
@@ -594,14 +594,11 @@ func (mgr *SysboxMgr) register(regInfo *ipcLib.RegistrationInfo) (*ipcLib.Contai
 
 	if info.state == restarted {
 		// remove the container's rootfs watch
-		origRootfs := sanitizeRootfs(id, info.origRootfs)
-		mgr.rootfsMon.Remove(origRootfs)
-
+		mgr.rootfsMon.Remove(info.rmWatchPath)
 		mgr.rtLock.Lock()
-		delete(mgr.rootfsTable, origRootfs)
+		delete(mgr.rootfsTable, info.rmWatchPath)
 		mgr.rtLock.Unlock()
-
-		logrus.Debugf("removed fs watch on %s", origRootfs)
+		logrus.Debugf("removed fs watch on %s", info.rmWatchPath)
 		logrus.Infof("registered container %s", formatter.ContainerID{id})
 	} else {
 		logrus.Infof("registered new container %s", formatter.ContainerID{id})
@@ -803,12 +800,11 @@ func (mgr *SysboxMgr) unregister(id string) error {
 	}
 
 	// setup a rootfs watch (allows us to get notified when the container's rootfs is removed)
-	origRootfs := sanitizeRootfs(id, info.origRootfs)
 	mgr.rtLock.Lock()
-	mgr.rootfsTable[origRootfs] = id
-	mgr.rootfsMon.Add(origRootfs)
+	mgr.rootfsTable[info.rmWatchPath] = id
+	mgr.rootfsMon.Add(info.rmWatchPath)
 	mgr.rtLock.Unlock()
-	logrus.Debugf("added fs watch on %s", origRootfs)
+	logrus.Debugf("added fs watch on %s", info.rmWatchPath)
 
 	logrus.Infof("unregistered container %s", formatter.ContainerID{id})
 	return nil
@@ -1532,14 +1528,24 @@ func (mgr *SysboxMgr) cloneRootfs(id string) (string, error) {
 	rmgr := mgr.rootfsCloner
 
 	if !info.rootfsCloned {
-
-		clonedRootfs, err := rmgr.CreateClone(id, info.rootfs)
+		clonedRootfs, origRootfsWorkDir, err := rmgr.CreateClone(id, info.rootfs)
 		if err != nil {
 			return "", err
 		}
 
 		info.rootfs = clonedRootfs
 		info.rootfsCloned = true
+
+		// Normally we check for container removal by monitoring if the container's rootfs
+		// is present or removed. But this does not work when Sysbox is doing rootfs cloning
+		// and Docker is configured with the containerd image store (i.e., Docker wants
+		// to remove the rootfs but can't because Sysbox has the rootfs clone mounts on top).
+		//
+		// As a work-around, watch for container removal by checking if the rootfs'
+		// overlayfs "workdir" (e.g., workdir=/var/lib/docker/overlay2/<uuid>/work)
+		// becomes empty. This always works, whether Docker uses the Docker image store
+		// or the containerd image store.
+		info.rmWatchPath = filepath.Join(origRootfsWorkDir, "work")
 
 		mgr.ctLock.Lock()
 		mgr.contTable[id] = info
