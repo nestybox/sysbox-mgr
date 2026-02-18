@@ -81,6 +81,7 @@ type containerInfo struct {
 	uidMappings            []specs.LinuxIDMapping
 	gidMappings            []specs.LinuxIDMapping
 	subidAllocated         bool
+	externalUserNS         bool   // true when using K8s/Containerd-provided mappings; do not allocate
 	rootfsCloned           bool
 	rootfsUidShiftType     idShiftUtils.IDShiftType
 	rootfsOnOvfs           bool
@@ -548,7 +549,11 @@ func (mgr *SysboxMgr) register(regInfo *ipcLib.RegistrationInfo) (*ipcLib.Contai
 	info.netns = netns
 	info.userns = userns
 
-	if !info.subidAllocated {
+	if regInfo.ExternalUserNS {
+		info.externalUserNS = true
+		info.uidMappings = uidMappings
+		info.gidMappings = gidMappings
+	} else if !info.subidAllocated {
 		info.uidMappings = uidMappings
 		info.gidMappings = gidMappings
 	}
@@ -576,7 +581,7 @@ func (mgr *SysboxMgr) register(regInfo *ipcLib.RegistrationInfo) (*ipcLib.Contai
 
 	// If this container's netns is shared with other containers, it's userns
 	// (and associated ID mappings) must be shared too.
-	if len(sameNetns) > 1 && userns == "" {
+	if len(sameNetns) > 1 && userns == "" && !info.externalUserNS {
 		otherContSameNetnsInfo, ok := mgr.contTable[sameNetns[0]]
 		if !ok {
 			mgr.ctLock.Unlock()
@@ -1233,6 +1238,16 @@ func (mgr *SysboxMgr) allocSubid(id string, size uint64) (uint32, uint32, error)
 	if !found {
 		return 0, 0, fmt.Errorf("container %s is not registered",
 			formatter.ContainerID{id})
+	}
+
+	// External UserNS: use the provided mappings; do not allocate from pool.
+	// Sysbox-fs will be configured with these mappings for ownership translation.
+	if info.externalUserNS {
+		if len(info.uidMappings) == 0 || len(info.gidMappings) == 0 {
+			return 0, 0, fmt.Errorf("container %s has external UserNS but no UID/GID mappings",
+				formatter.ContainerID{id})
+		}
+		return info.uidMappings[0].HostID, info.gidMappings[0].HostID, nil
 	}
 
 	// If we are being asked to allocate ID mappings for a new container, do it.
