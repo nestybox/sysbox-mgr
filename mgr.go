@@ -531,7 +531,7 @@ func (mgr *SysboxMgr) register(regInfo *ipcLib.RegistrationInfo) (*ipcLib.Contai
 			mntPrepRev:   []mntPrepRevInfo{},
 			shiftfsMarks: []shiftfs.MountPoint{},
 			rootfs:       rootfs,
-			rmWatchPath:  sanitizeRootfs(id, rootfs),
+			rmWatchPath:  getRmWatchPath(id, rootfs),
 			rootfsOnOvfs: rootfsOnOvfs,
 		}
 

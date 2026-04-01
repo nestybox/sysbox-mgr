@@ -548,22 +548,15 @@ func cleanupWorkDirs() error {
 	return nil
 }
 
-// Sanitize the given container's rootfs.
-func sanitizeRootfs(id, rootfs string) string {
-
-	// Docker containers on overlayfs have a rootfs under "/var/lib/docker/overlay2/<container-id>/merged".
-	// However, Docker removes the "merged" directory during container stop and re-creates
-	// it during container start. Thus, we can't rely on the presence of "merged" to
-	// determine if a container was stopped or removed. Instead, we use the rootfs path up
-	// to <container-id>.
-
+// getRmWatchPath returns a path that can be monitored to know when the container
+// with the given ID is removed. Normally this is the container's rootfs, but for
+// Docker containers we monitor a different path because it removes the rootfs anytime
+// the container is stopped but not removed.
+func getRmWatchPath(id, rootfs string) string {
 	isDocker, err := dockerUtils.ContainerIsDocker(id, rootfs)
 	if err == nil && isDocker {
-		if strings.Contains(rootfs, "overlay2") && filepath.Base(rootfs) == "merged" {
-			return filepath.Dir(rootfs)
-		}
+		return "/var/lib/docker/containers/" + id
 	}
-
 	return rootfs
 }
 
