@@ -912,7 +912,7 @@ func getInode(file string) (uint64, error) {
 	return st.Ino, nil
 }
 
-func checkIDMapMountSupport(ctx *cli.Context) (bool, bool, error) {
+func checkIDMapMountSupport(ctx *cli.Context) (bool, bool, bool, error) {
 
 	// The sysbox lib dir may have restrictive permissions; loosen those up
 	// temporarily while we perform the ID-map check since it runs inside a
@@ -921,12 +921,12 @@ func checkIDMapMountSupport(ctx *cli.Context) (bool, bool, error) {
 	// write-other permissions.
 	fi, err := os.Stat(sysboxLibDir)
 	if err != nil {
-		return false, false, err
+		return false, false, false, err
 	}
 	origPerm := fi.Mode()
 
 	if err := os.Chmod(sysboxLibDir, 0755); err != nil {
-		return false, false, fmt.Errorf("failed to chmod %s to 0755: %s", sysboxLibDir, err)
+		return false, false, false, fmt.Errorf("failed to chmod %s to 0755: %s", sysboxLibDir, err)
 	}
 
 	defer func() {
@@ -935,19 +935,47 @@ func checkIDMapMountSupport(ctx *cli.Context) (bool, bool, error) {
 
 	IDMapMountOk, err := idMap.IDMapMountSupported(sysboxLibDir)
 	if err != nil {
-		return false, false, fmt.Errorf("failed to check kernel ID-mapping support: %v", err)
+		return false, false, false, fmt.Errorf("failed to check kernel ID-mapping support: %v", err)
 	}
 
 	ovfsOnIDMapMountOk, err := idMap.OverlayfsOnIDMapMountSupported(sysboxLibDir)
 	if err != nil {
-		return false, false, fmt.Errorf("failed to check kernel ID-mapping-on-overlayfs support: %v", err)
+		return false, false, false, fmt.Errorf("failed to check kernel ID-mapping-on-overlayfs support: %v", err)
+	}
+
+	// Probe whether the kernel supports id-mapping the overlayfs upperdir and
+	// workdir. This is needed to fix the "docker cp" nobody:nogroup bug: writes
+	// through the merged overlayfs mount from outside the container's userns
+	// (e.g. docker cp) land on disk with uid=0 when only the lower layers are
+	// id-mapped. With an id-mapped upper, the kernel translates writer uid 0
+	// to the correct on-disk uid automatically.
+	ovfsUpperIDMapOk, err := idMap.OverlayfsOnIDMapUpperSupported(sysboxLibDir)
+	if err != nil {
+		return false, false, false, fmt.Errorf("failed to check kernel overlayfs-upper ID-mapping support: %v", err)
+	}
+
+	// Also verify that the filesystem backing sysboxLibDir supports MOUNT_ATTR_IDMAP.
+	// In typical single-disk installations, sysboxLibDir (/var/lib/sysbox) and
+	// Docker's overlay2 storage (/var/lib/docker/overlay2) share the same
+	// underlying filesystem, so this is a valid proxy for the upper layer fs check.
+	// This collapses the per-container IDMapMountSupportedOnPath check that would
+	// otherwise run on every container start into a single startup check.
+	if ovfsUpperIDMapOk {
+		fsOk, err := idMap.IDMapMountSupportedOnPath(sysboxLibDir)
+		if err != nil {
+			return false, false, false, fmt.Errorf("failed to check filesystem idmap support at %s: %v", sysboxLibDir, err)
+		}
+		if !fsOk {
+			logrus.Infof("Overlayfs upperdir ID-mapped mounts: kernel supported but filesystem at %s does not support idmap; disabling", sysboxLibDir)
+			ovfsUpperIDMapOk = false
+		}
 	}
 
 	if err := os.Chmod(sysboxLibDir, origPerm); err != nil {
-		return false, false, fmt.Errorf("failed to chmod %s back to %o: %s", sysboxLibDir, origPerm, err)
+		return false, false, false, fmt.Errorf("failed to chmod %s back to %o: %s", sysboxLibDir, origPerm, err)
 	}
 
-	return IDMapMountOk, ovfsOnIDMapMountOk, nil
+	return IDMapMountOk, ovfsOnIDMapMountOk, ovfsUpperIDMapOk, nil
 }
 
 func checkShiftfsSupport(ctx *cli.Context) (bool, bool, error) {
