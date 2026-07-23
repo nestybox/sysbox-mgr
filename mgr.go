@@ -515,6 +515,11 @@ func (mgr *SysboxMgr) register(regInfo *ipcLib.RegistrationInfo) (*ipcLib.Contai
 	uidMappings := regInfo.UidMappings
 	gidMappings := regInfo.GidMappings
 
+	// Compute the removal-watch path before taking ctLock: it may query Docker
+	// and must not be held across the global lock, or concurrent registrations
+	// would serialize behind it (e.g. when restoring many containers at once).
+	rmWatchPath := getRmWatchPath(id, rootfs)
+
 	mgr.ctLock.Lock()
 	info, found := mgr.contTable[id]
 	newContainer := !found
@@ -531,7 +536,7 @@ func (mgr *SysboxMgr) register(regInfo *ipcLib.RegistrationInfo) (*ipcLib.Contai
 			mntPrepRev:   []mntPrepRevInfo{},
 			shiftfsMarks: []shiftfs.MountPoint{},
 			rootfs:       rootfs,
-			rmWatchPath:  getRmWatchPath(id, rootfs),
+			rmWatchPath:  rmWatchPath,
 			rootfsOnOvfs: rootfsOnOvfs,
 		}
 
