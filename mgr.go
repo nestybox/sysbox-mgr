@@ -34,6 +34,7 @@ import (
 	"github.com/nestybox/sysbox-libs/linuxUtils"
 	"github.com/nestybox/sysbox-libs/shiftfs"
 	libutils "github.com/nestybox/sysbox-libs/utils"
+	"github.com/nestybox/sysbox-mgr/deviceMgr"
 	intf "github.com/nestybox/sysbox-mgr/intf"
 	"github.com/nestybox/sysbox-mgr/rootfsCloner"
 	"github.com/nestybox/sysbox-mgr/shiftfsMgr"
@@ -119,6 +120,7 @@ type SysboxMgr struct {
 	buildkitVolMgr    intf.VolMgr
 	containerdVolMgr  intf.VolMgr
 	shiftfsMgr        intf.ShiftfsMgr
+	deviceMgr         deviceMgr.DeviceMgrIface
 	rootfsCloner      intf.RootfsCloner
 	hostDistro        string
 	hostKernelHdrPath string
@@ -213,6 +215,11 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 	shiftfsMgr, err := shiftfsMgr.New(sysboxLibDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup shiftfs mgr: %v", err)
+	}
+
+	deviceMgr := deviceMgr.New(sysboxLibDir + "/devices")
+	if deviceMgr == nil {
+		return nil, fmt.Errorf("failed to setup device mgr")
 	}
 
 	rootfsCloner := rootfsCloner.New(sysboxLibDir)
@@ -407,6 +414,7 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		rootfsMonStop:     make(chan int),
 		netnsTable:        make(map[uint64][]string),
 		exclMntTable:      newExclusiveMntTable(),
+		deviceMgr:         deviceMgr,
 	}
 
 	cb := &grpc.ServerCallbacks{
@@ -418,6 +426,7 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		PrepMounts:              mgr.prepMounts,
 		ReqShiftfsMark:          mgr.reqShiftfsMark,
 		ReqFsState:              mgr.reqFsState,
+		SetupDevices:            mgr.setupDevices,
 		CloneRootfs:             mgr.cloneRootfs,
 		ChownClonedRootfs:       mgr.chownClonedRootfs,
 		RevertClonedRootfsChown: mgr.revertClonedRootfsChown,
@@ -927,6 +936,13 @@ func (mgr *SysboxMgr) removeCont(id string) {
 		}
 	}
 
+	// Remove all the container devices registered within the devManager.
+	if err := mgr.deviceMgr.RemoveDevices(id); err != nil {
+		logrus.Errorf("rootfsMon: failed to remove devices for container %s: %s",
+			formatter.ContainerID{id}, err)
+		return
+	}
+
 	if info.subidAllocated {
 		if err := mgr.subidAlloc.Free(id); err != nil {
 			logrus.Errorf("rootfsMon: failed to free uid(gid) for container %s: %s",
@@ -943,6 +959,29 @@ func (mgr *SysboxMgr) removeCont(id string) {
 
 	logrus.Infof("released resources for container %s",
 		formatter.ContainerID{id})
+}
+
+func (mgr *SysboxMgr) setupDevices(id string, devices []specs.LinuxDevice) ([]specs.LinuxDevice, error) {
+	mgr.ctLock.Lock()
+	info, found := mgr.contTable[id]
+	mgr.ctLock.Unlock()
+
+	if !found {
+		return nil, fmt.Errorf("container %s is not registered", formatter.ContainerID{id})
+	}
+
+	// If this is a stopped container that is being re-started, reuse its prior devices.
+	if info.state == restarted {
+		return nil, nil
+	}
+
+	res, err := mgr.deviceMgr.SetupDevices(id, info.uidMappings[0].HostID, info.gidMappings[0].HostID, devices)
+	if err != nil {
+		return nil, fmt.Errorf("failed to setup system devices for container %s: %s",
+			formatter.ContainerID{id}, err)
+	}
+
+	return res, nil
 }
 
 func (mgr *SysboxMgr) reqMounts(id string, rootfsUidShiftType idShiftUtils.IDShiftType, reqList []ipcLib.MountReqInfo) ([]specs.Mount, error) {
@@ -1070,6 +1109,9 @@ func (mgr *SysboxMgr) reqMounts(id string, rootfsUidShiftType idShiftUtils.IDShi
 		mgr.contTable[id] = info
 		mgr.ctLock.Unlock()
 	}
+
+	// Add the bind-mounts associated with devices discovered by the devMgr.
+	containerMnts = append(containerMnts, mgr.deviceMgr.DeviceMounts(id)...)
 
 	// Add the binfmt_misc mount
 	if mgr.mgrCfg.mountBinfmtMisc {
