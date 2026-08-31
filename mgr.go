@@ -242,9 +242,19 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		return nil, fmt.Errorf("failed to compute linux header mounts: %v", err)
 	}
 
+	linuxHeaderMounts, err = setupImmutableMounts(linuxHeaderMounts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to setup linux header mounts: %v", err)
+	}
+
 	libModMounts, err := getLibModMounts()
 	if err != nil {
 		return nil, fmt.Errorf("failed to compute kernel-module mounts: %v", err)
+	}
+
+	libModMounts, err = setupImmutableMounts(libModMounts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to setup kernel-module mounts: %v", err)
 	}
 
 	idMapMountOk := false
@@ -1093,14 +1103,19 @@ func (mgr *SysboxMgr) reqMounts(id string, rootfsUidShiftType idShiftUtils.IDShi
 	// build or run apps that interact with the Linux kernel directly within a
 	// sys container. Note that there is no need to track mntInfo for these since
 	// we are not backing these with sysbox-mgr data stores.
-	containerMnts = append(containerMnts, mgr.linuxHeaderMounts...)
-
+	//
 	// Add the linux /lib/modules/<kernel> mounts to the sys
 	// container. This allows system container processes to verify the
 	// presence of modules via modprobe. System apps such as Docker and
 	// K8s do this. Note that this does not imply module
 	// loading/unloading is supported in a system container (it's
 	// not). It merely lets processes check if a module is loaded.
+	//
+	// Both mgr.linuxHeaderMounts and mgr.libModMounts source from a
+	// sysbox-mgr-owned "anchor" bind mount rather than from the real host
+	// path directly; see setupImmutableMounts() for why that makes these
+	// mounts immutable from within the sys container.
+	containerMnts = append(containerMnts, mgr.linuxHeaderMounts...)
 	containerMnts = append(containerMnts, mgr.libModMounts...)
 
 	if len(reqMntInfos) > 0 {
