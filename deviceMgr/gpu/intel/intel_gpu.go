@@ -12,8 +12,8 @@ func NewIntelDevicer() *intelDevicer {
 	return &intelDevicer{}
 }
 
-func (d *intelDevicer) Discover(dev *specs.LinuxDevice) (*specs.LinuxDevice, error) {
-	return nil, nil
+func (d *intelDevicer) Discover(dev *specs.LinuxDevice) (*specs.LinuxDevice, []*specs.LinuxDevice, error) {
+	return nil, nil, nil
 }
 
 func (d *intelDevicer) Create(device *specs.LinuxDevice) error {

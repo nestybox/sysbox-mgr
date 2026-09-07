@@ -12,8 +12,8 @@ func NewRootDevicer() *rootDevicer {
 	return &rootDevicer{}
 }
 
-func (d *rootDevicer) Discover(dev *specs.LinuxDevice) (*specs.LinuxDevice, error) {
-	return nil, nil
+func (d *rootDevicer) Discover(dev *specs.LinuxDevice) (*specs.LinuxDevice, []*specs.LinuxDevice, error) {
+	return nil, nil, nil
 }
 
 func (d *rootDevicer) Create(device *specs.LinuxDevice) error {

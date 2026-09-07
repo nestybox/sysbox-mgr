@@ -21,25 +21,25 @@ func NewNetDevicer() *netDevicer {
 
 // This Discover() implementation currently only supports the /dev/net/tun
 // device.
-func (d *netDevicer) Discover(dev *specs.LinuxDevice) (*specs.LinuxDevice, error) {
+func (d *netDevicer) Discover(dev *specs.LinuxDevice) (*specs.LinuxDevice, []*specs.LinuxDevice, error) {
 
 	// Return cleanly if the specified device is not supported.
 	if dev != nil && dev.Path != netTunPath {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	// Discover the /dev/net/tun device.
 	netTunDev, err := discoverNetTunDev()
 	if err != nil {
-		return nil, fmt.Errorf("failed to discover network devices: %v", err)
+		return nil, nil, fmt.Errorf("failed to discover network devices: %v", err)
 	}
 
 	// Return cleanly if no network devices were discovered (assuming no error occurred).
 	if netTunDev == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 
-	return netTunDev, nil
+	return netTunDev, nil, nil
 }
 
 func (d *netDevicer) Create(device *specs.LinuxDevice) error {

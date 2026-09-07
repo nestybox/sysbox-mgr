@@ -33,7 +33,14 @@ type devicer interface {
 	// device path in the device specification. If no device specification is
 	// provided, Discover() may return the device specification for the devices
 	// that must be created by default (e.g., /dev/net/tun).
-	Discover(device *specs.LinuxDevice) (*specs.LinuxDevice, error)
+	//
+	// Discover() also returns a slice of device specifications that the deviceMgr
+	// must create on the host for this container (i.e., materialize the device nodes
+	// so they can be bind-mounted into the container via DeviceMounts()). Devices in
+	// this slice are NOT meant to be returned to sysbox-runc for direct node creation
+	// or binding; callers must output only the first return value (the "discovered"
+	// device) to the container spec.
+	Discover(device *specs.LinuxDevice) (discovered *specs.LinuxDevice, toCreate []*specs.LinuxDevice, err error)
 
 	// Create method handles any device-specific instruction that may be required by
 	// the device (currently not used).
@@ -181,7 +188,7 @@ func (m *DeviceMgr) SetupDevices(
 		devicer := node.(devicer)
 
 		// Discover the device.
-		discoveredDev, err := devicer.Discover(&d)
+		discoveredDev, toCreate, err := devicer.Discover(&d)
 		if err != nil {
 			return nil, fmt.Errorf("failed to discover device %s: %s", d.Path, err)
 		}
@@ -189,9 +196,28 @@ func (m *DeviceMgr) SetupDevices(
 		// that will be returned to sysbox-runc so that this one returns an error to the user.
 		if discoveredDev == nil {
 			res = append(res, d)
-			continue
+		} else {
+			res = append(res, *discoveredDev)
 		}
-		res = append(res, *discoveredDev)
+
+		// Materialize any devices the devicer asked the deviceMgr to create on the host
+		// for this container (e.g., nvidia nodes that must be bind-mounted into the
+		// container from sysboxDevDir because they don't exist at the container path on
+		// the host). These materialized nodes are NOT returned to sysbox-runc; they are
+		// bind-mounted into the container via DeviceMounts().
+		for _, node := range toCreate {
+			if err := m.createDevice(cid, uid, gid, node); err != nil {
+				return nil, fmt.Errorf("failed to create device %s for container %s: %s", node.Path, cid, err)
+			}
+		}
+		if len(toCreate) > 0 {
+			// The returned device list must not duplicate nodes the deviceMgr materializes
+			// for the container; the devicer clears the Path of the returned device for that
+			// purpose. Log if it didn't (a bug in the devicer).
+			if discoveredDev != nil && discoveredDev.Path != "" {
+				logrus.Warnf("devicer %T returned discovered device with non-empty path %s while also requesting %d host device materializations", devicer, d.Path, len(toCreate))
+			}
+		}
 	}
 
 	// Iterate through the devicer tree and create the devices that must be allocated
@@ -206,7 +232,7 @@ func (m *DeviceMgr) SetupDevices(
 		if !d.CreateByDefault() {
 			continue
 		}
-		discoveredDev, err := d.Discover(nil)
+		discoveredDev, _, err := d.Discover(nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to discover default device: %s", err)
 		}
@@ -291,7 +317,13 @@ func (m *DeviceMgr) createDevice(cid string, uid, gid uint32, dev *specs.LinuxDe
 	}
 
 	// TODO: handle other device types.
-	if *dev.FileMode&fs.ModeCharDevice != 0 {
+	// The device type is authoritative: an OCI/CDI "char" device ("c") must be
+	// materialized as a character device regardless of whether the caller's
+	// FileMode carries the S_IFCHR bit (many allocators, e.g. the nvidia CDI
+	// device plugin, set FileMode to pure permission bits such as 0666/0444).
+	if dev.Type == "c" {
+		*dev.FileMode |= unix.S_IFCHR
+	} else if *dev.FileMode&fs.ModeCharDevice != 0 {
 		*dev.FileMode |= unix.S_IFCHR
 	}
 
