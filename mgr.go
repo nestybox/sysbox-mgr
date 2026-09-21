@@ -242,9 +242,19 @@ func newSysboxMgr(ctx *cli.Context) (*SysboxMgr, error) {
 		return nil, fmt.Errorf("failed to compute linux header mounts: %v", err)
 	}
 
+	linuxHeaderMounts, err = setupImmutableMounts(linuxHeaderMounts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to setup linux header mounts: %v", err)
+	}
+
 	libModMounts, err := getLibModMounts()
 	if err != nil {
 		return nil, fmt.Errorf("failed to compute kernel-module mounts: %v", err)
+	}
+
+	libModMounts, err = setupImmutableMounts(libModMounts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to setup kernel-module mounts: %v", err)
 	}
 
 	idMapMountOk := false
@@ -733,6 +743,11 @@ func (mgr *SysboxMgr) unregister(id string) error {
 		info.shiftfsMarks = []shiftfs.MountPoint{}
 	}
 
+	if err := teardownRoAnchors(id); err != nil {
+		logrus.Warnf("failed to remove ro-mount anchors for container %s: %s",
+			formatter.ContainerID{id}, err)
+	}
+
 	// If the rootfs is ID-mapped and on overlayfs, then chown the upper dir from
 	// [userns-host-ID -> 0] when the container stops (i.e., revert uid:gid to
 	// it's original). This way snapshots of the container rootfs (e.g., docker
@@ -1005,6 +1020,13 @@ func (mgr *SysboxMgr) reqMounts(id string, rootfsUidShiftType idShiftUtils.IDShi
 		return info.containerMnts, nil
 	}
 
+	// Ro-anchor requests skip the normal path below: it unconditionally
+	// appends devices/kernel-header/module mounts, which would duplicate or
+	// wrongly expose them here (sysbox-runc fetches those separately).
+	if isRoAnchorOnlyReq(reqList) {
+		return mgr.reqRoAnchorMounts(id, reqList)
+	}
+
 	// Setup Sysbox's implicit container mounts. The mounts may need chowning
 	// according to the following rules:
 	//
@@ -1093,14 +1115,19 @@ func (mgr *SysboxMgr) reqMounts(id string, rootfsUidShiftType idShiftUtils.IDShi
 	// build or run apps that interact with the Linux kernel directly within a
 	// sys container. Note that there is no need to track mntInfo for these since
 	// we are not backing these with sysbox-mgr data stores.
-	containerMnts = append(containerMnts, mgr.linuxHeaderMounts...)
-
+	//
 	// Add the linux /lib/modules/<kernel> mounts to the sys
 	// container. This allows system container processes to verify the
 	// presence of modules via modprobe. System apps such as Docker and
 	// K8s do this. Note that this does not imply module
 	// loading/unloading is supported in a system container (it's
 	// not). It merely lets processes check if a module is loaded.
+	//
+	// Both mgr.linuxHeaderMounts and mgr.libModMounts source from a
+	// sysbox-mgr-owned "anchor" bind mount rather than from the real host
+	// path directly; see setupImmutableMounts() for why that makes these
+	// mounts immutable from within the sys container.
+	containerMnts = append(containerMnts, mgr.linuxHeaderMounts...)
 	containerMnts = append(containerMnts, mgr.libModMounts...)
 
 	if len(reqMntInfos) > 0 {
@@ -1127,6 +1154,44 @@ func (mgr *SysboxMgr) reqMounts(id string, rootfsUidShiftType idShiftUtils.IDShi
 	go mgr.autoRemoveCheck(id)
 
 	return containerMnts, nil
+}
+
+// isRoAnchorOnlyReq returns true if reqList consists entirely of
+// ipcLib.MntRoAnchor requests. Such batches are handled by
+// reqRoAnchorMounts() instead of reqMounts()'s normal path; see the comment
+// where this is called from reqMounts() for why.
+func isRoAnchorOnlyReq(reqList []ipcLib.MountReqInfo) bool {
+	if len(reqList) == 0 {
+		return false
+	}
+	for _, req := range reqList {
+		if req.Kind != ipcLib.MntRoAnchor {
+			return false
+		}
+	}
+	return true
+}
+
+// reqRoAnchorMounts anchors each requested source (see setupRoAnchor()) and
+// returns the resulting bind-mount specs, one per request, in order.
+func (mgr *SysboxMgr) reqRoAnchorMounts(id string, reqList []ipcLib.MountReqInfo) ([]specs.Mount, error) {
+	mounts := []specs.Mount{}
+
+	for _, req := range reqList {
+		anchor, err := setupRoAnchor(id, req.Source)
+		if err != nil {
+			return nil, fmt.Errorf("failed to anchor %s for container %s: %v",
+				req.Source, formatter.ContainerID{id}, err)
+		}
+
+		mounts = append(mounts, specs.Mount{
+			Source:      anchor,
+			Destination: req.Dest,
+			Type:        "bind",
+		})
+	}
+
+	return mounts, nil
 }
 
 // autoRemoveCheck finds out (best effort) if the container will be automatically

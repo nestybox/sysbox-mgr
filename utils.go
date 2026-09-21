@@ -634,6 +634,132 @@ func getLibModMounts() ([]specs.Mount, error) {
 	return mounts, nil
 }
 
+// immutableMntAnchorSubdir is the sysbox-mgr-owned directory (relative to
+// sysboxLibDir) under which the anchors set up by setupImmutableMounts() are
+// kept.
+const immutableMntAnchorSubdir = "immutable-mounts"
+
+// setupImmutableMounts prepares read-only host mounts (kernel headers or
+// modules) so a sys container can never make them writable, even via
+// mount_setattr(2) or other syscalls sysbox-fs doesn't mediate.
+//
+// Rather than mediate every mount-modifying syscall, this relies on a
+// kernel guarantee: when a mount namespace crosses a user-namespace
+// boundary (a sys container's unshare()), any mount that's already
+// read-only at that moment gets permanently locked (MNT_LOCK_READONLY), and
+// that lock survives a later bind. So each anchor here is created read-only
+// before any container -- and thus before any unshare() -- exists; the
+// returned mounts source from the anchor instead of the real host path.
+func setupImmutableMounts(mounts []specs.Mount) ([]specs.Mount, error) {
+
+	anchorRoot := filepath.Join(sysboxLibDir, immutableMntAnchorSubdir)
+	if err := os.MkdirAll(anchorRoot, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create %s: %v", anchorRoot, err)
+	}
+
+	result := make([]specs.Mount, len(mounts))
+
+	for i, m := range mounts {
+		anchor := filepath.Join(anchorRoot, sanitizeAnchorName(m.Source))
+
+		if err := setupImmutableMountAnchor(anchor, m.Source); err != nil {
+			return nil, err
+		}
+
+		anchored := m
+		anchored.Source = anchor
+		result[i] = anchored
+	}
+
+	return result, nil
+}
+
+// setupImmutableMountAnchor is a helper for setupImmutableMounts; it binds
+// source onto anchor, makes the bind private (so it doesn't propagate into
+// unrelated mount namespaces that may share a propagation group with
+// sysboxLibDir's underlying mount), and remounts it read-only.
+func setupImmutableMountAnchor(anchor, source string) error {
+
+	if err := os.MkdirAll(anchor, 0755); err != nil {
+		return fmt.Errorf("failed to create immutable mount anchor %s: %v", anchor, err)
+	}
+
+	if err := unix.Mount(source, anchor, "", unix.MS_BIND|unix.MS_REC, ""); err != nil {
+		return fmt.Errorf("failed to bind-mount %s to anchor %s: %v", source, anchor, err)
+	}
+
+	if err := unix.Mount("", anchor, "", unix.MS_PRIVATE|unix.MS_REC, ""); err != nil {
+		return fmt.Errorf("failed to set private propagation on anchor %s: %v", anchor, err)
+	}
+
+	if err := unix.Mount("", anchor, "", unix.MS_REMOUNT|unix.MS_BIND|unix.MS_RDONLY, ""); err != nil {
+		return fmt.Errorf("failed to remount anchor %s read-only: %v", anchor, err)
+	}
+
+	return nil
+}
+
+// sanitizeAnchorName converts an absolute host path into a name suitable for
+// use as a single path component, e.g. "/lib/modules/6.17.0" becomes
+// "lib-modules-6.17.0".
+func sanitizeAnchorName(path string) string {
+	return strings.Trim(strings.ReplaceAll(filepath.Clean(path), "/", "-"), "-")
+}
+
+// roAnchorSubdir is the sysbox-mgr-owned directory (relative to
+// sysboxLibDir/<id>) under which the per-container anchors set up by
+// setupRoAnchor() are kept.
+const roAnchorSubdir = "ro-anchors"
+
+// setupRoAnchor is setupImmutableMounts()'s per-container, on-demand
+// counterpart, for read-only bind mounts sysbox-mgr only learns about once a
+// specific container requests them (e.g. RHM-whitelisted paths, plain user
+// "-v host:container:ro" mounts). Same anchoring mechanism, but scoped to,
+// and torn down with, the requesting container (see teardownRoAnchors()).
+func setupRoAnchor(id, source string) (string, error) {
+
+	anchorRoot := filepath.Join(sysboxLibDir, id, roAnchorSubdir)
+	if err := os.MkdirAll(anchorRoot, 0755); err != nil {
+		return "", fmt.Errorf("failed to create %s: %v", anchorRoot, err)
+	}
+
+	anchor := filepath.Join(anchorRoot, sanitizeAnchorName(source))
+
+	if err := setupImmutableMountAnchor(anchor, source); err != nil {
+		return "", err
+	}
+
+	return anchor, nil
+}
+
+// teardownRoAnchors unmounts and removes every per-container anchor
+// setupRoAnchor() created for the given container. Safe to call even if none
+// were ever created.
+func teardownRoAnchors(id string) error {
+
+	anchorRoot := filepath.Join(sysboxLibDir, id, roAnchorSubdir)
+
+	entries, err := os.ReadDir(anchorRoot)
+	if os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("failed to read %s: %v", anchorRoot, err)
+	}
+
+	for _, e := range entries {
+		anchor := filepath.Join(anchorRoot, e.Name())
+		if err := unix.Unmount(anchor, unix.MNT_DETACH); err != nil {
+			logrus.Warnf("failed to unmount ro-anchor %s: %v", anchor, err)
+		}
+	}
+
+	if err := os.RemoveAll(anchorRoot); err != nil {
+		return fmt.Errorf("failed to remove %s: %v", anchorRoot, err)
+	}
+
+	return nil
+}
+
 // createMountSpec returns a mount spec with the given source, destination, type, and
 // options. 'source' must be an absolute path. 'dest' is absolute with respect to the
 // container's rootfs. If followSymlinks is true, this function follows symlinks under the
