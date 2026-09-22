@@ -677,11 +677,26 @@ func setupImmutableMounts(mounts []specs.Mount) ([]specs.Mount, error) {
 // setupImmutableMountAnchor is a helper for setupImmutableMounts; it binds
 // source onto anchor, makes the bind private (so it doesn't propagate into
 // unrelated mount namespaces that may share a propagation group with
-// sysboxLibDir's underlying mount), and remounts it read-only.
+// sysboxLibDir's underlying mount), and remounts it read-only. anchor is
+// created as a directory or a regular file to match source's own type,
+// since a bind mount requires both sides to agree on that.
 func setupImmutableMountAnchor(anchor, source string) error {
 
-	if err := os.MkdirAll(anchor, 0755); err != nil {
-		return fmt.Errorf("failed to create immutable mount anchor %s: %v", anchor, err)
+	fi, err := os.Stat(source)
+	if err != nil {
+		return fmt.Errorf("failed to stat %s: %v", source, err)
+	}
+
+	if fi.IsDir() {
+		if err := os.MkdirAll(anchor, 0755); err != nil {
+			return fmt.Errorf("failed to create immutable mount anchor %s: %v", anchor, err)
+		}
+	} else {
+		f, err := os.OpenFile(anchor, os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			return fmt.Errorf("failed to create immutable mount anchor %s: %v", anchor, err)
+		}
+		f.Close()
 	}
 
 	if err := unix.Mount(source, anchor, "", unix.MS_BIND|unix.MS_REC, ""); err != nil {
