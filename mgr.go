@@ -1015,16 +1015,16 @@ func (mgr *SysboxMgr) reqMounts(id string, rootfsUidShiftType idShiftUtils.IDShi
 			formatter.ContainerID{id})
 	}
 
+	// Ro-anchor requests are a separate call from the normal-path one below,
+	// so they must be checked for before the restart shortcut immediately
+	// below (which only applies to that normal-path call).
+	if isRoAnchorOnlyReq(reqList) {
+		return mgr.reqRoAnchorMounts(id, reqList)
+	}
+
 	// if this is a stopped container that is being re-started, reuse its prior mounts
 	if info.state == restarted {
 		return info.containerMnts, nil
-	}
-
-	// Ro-anchor requests skip the normal path below: it unconditionally
-	// appends devices/kernel-header/module mounts, which would duplicate or
-	// wrongly expose them here (sysbox-runc fetches those separately).
-	if isRoAnchorOnlyReq(reqList) {
-		return mgr.reqRoAnchorMounts(id, reqList)
 	}
 
 	// Setup Sysbox's implicit container mounts. The mounts may need chowning
