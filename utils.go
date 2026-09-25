@@ -677,11 +677,26 @@ func setupImmutableMounts(mounts []specs.Mount) ([]specs.Mount, error) {
 // setupImmutableMountAnchor is a helper for setupImmutableMounts; it binds
 // source onto anchor, makes the bind private (so it doesn't propagate into
 // unrelated mount namespaces that may share a propagation group with
-// sysboxLibDir's underlying mount), and remounts it read-only.
+// sysboxLibDir's underlying mount), and remounts it read-only. anchor is
+// created as a directory or a regular file to match source's own type,
+// since a bind mount requires both sides to agree on that.
 func setupImmutableMountAnchor(anchor, source string) error {
 
-	if err := os.MkdirAll(anchor, 0755); err != nil {
-		return fmt.Errorf("failed to create immutable mount anchor %s: %v", anchor, err)
+	fi, err := os.Stat(source)
+	if err != nil {
+		return fmt.Errorf("failed to stat %s: %v", source, err)
+	}
+
+	if fi.IsDir() {
+		if err := os.MkdirAll(anchor, 0755); err != nil {
+			return fmt.Errorf("failed to create immutable mount anchor %s: %v", anchor, err)
+		}
+	} else {
+		f, err := os.OpenFile(anchor, os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			return fmt.Errorf("failed to create immutable mount anchor %s: %v", anchor, err)
+		}
+		f.Close()
 	}
 
 	if err := unix.Mount(source, anchor, "", unix.MS_BIND|unix.MS_REC, ""); err != nil {
@@ -704,6 +719,60 @@ func setupImmutableMountAnchor(anchor, source string) error {
 // "lib-modules-6.17.0".
 func sanitizeAnchorName(path string) string {
 	return strings.Trim(strings.ReplaceAll(filepath.Clean(path), "/", "-"), "-")
+}
+
+// roAnchorSubdir is the sysbox-mgr-owned directory (relative to
+// sysboxLibDir/<id>) under which the per-container anchors set up by
+// setupRoAnchor() are kept.
+const roAnchorSubdir = "ro-anchors"
+
+// setupRoAnchor is setupImmutableMounts()'s per-container, on-demand
+// counterpart, for read-only bind mounts sysbox-mgr only learns about once a
+// specific container requests them (e.g. plain user "-v host:container:ro"
+// mounts). Same anchoring mechanism, but scoped to, and torn down with, the
+// requesting container (see teardownRoAnchors()).
+func setupRoAnchor(id, source string) (string, error) {
+
+	anchorRoot := filepath.Join(sysboxLibDir, id, roAnchorSubdir)
+	if err := os.MkdirAll(anchorRoot, 0755); err != nil {
+		return "", fmt.Errorf("failed to create %s: %v", anchorRoot, err)
+	}
+
+	anchor := filepath.Join(anchorRoot, sanitizeAnchorName(source))
+
+	if err := setupImmutableMountAnchor(anchor, source); err != nil {
+		return "", err
+	}
+
+	return anchor, nil
+}
+
+// teardownRoAnchors unmounts and removes every per-container anchor
+// setupRoAnchor() created for the given container. Safe to call even if none
+// were ever created.
+func teardownRoAnchors(id string) error {
+
+	anchorRoot := filepath.Join(sysboxLibDir, id, roAnchorSubdir)
+
+	entries, err := os.ReadDir(anchorRoot)
+	if os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("failed to read %s: %v", anchorRoot, err)
+	}
+
+	for _, e := range entries {
+		anchor := filepath.Join(anchorRoot, e.Name())
+		if err := unix.Unmount(anchor, unix.MNT_DETACH); err != nil {
+			logrus.Warnf("failed to unmount ro-anchor %s: %v", anchor, err)
+		}
+	}
+
+	if err := os.RemoveAll(anchorRoot); err != nil {
+		return fmt.Errorf("failed to remove %s: %v", anchorRoot, err)
+	}
+
+	return nil
 }
 
 // createMountSpec returns a mount spec with the given source, destination, type, and

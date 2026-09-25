@@ -743,6 +743,11 @@ func (mgr *SysboxMgr) unregister(id string) error {
 		info.shiftfsMarks = []shiftfs.MountPoint{}
 	}
 
+	if err := teardownRoAnchors(id); err != nil {
+		logrus.Warnf("failed to remove ro-mount anchors for container %s: %s",
+			formatter.ContainerID{id}, err)
+	}
+
 	// If the rootfs is ID-mapped and on overlayfs, then chown the upper dir from
 	// [userns-host-ID -> 0] when the container stops (i.e., revert uid:gid to
 	// it's original). This way snapshots of the container rootfs (e.g., docker
@@ -1010,6 +1015,13 @@ func (mgr *SysboxMgr) reqMounts(id string, rootfsUidShiftType idShiftUtils.IDShi
 			formatter.ContainerID{id})
 	}
 
+	// Ro-anchor requests are a separate call from the normal-path one below,
+	// so they must be checked for before the restart shortcut immediately
+	// below (which only applies to that normal-path call).
+	if isRoAnchorOnlyReq(reqList) {
+		return mgr.reqRoAnchorMounts(id, reqList)
+	}
+
 	// if this is a stopped container that is being re-started, reuse its prior mounts
 	if info.state == restarted {
 		return info.containerMnts, nil
@@ -1142,6 +1154,44 @@ func (mgr *SysboxMgr) reqMounts(id string, rootfsUidShiftType idShiftUtils.IDShi
 	go mgr.autoRemoveCheck(id)
 
 	return containerMnts, nil
+}
+
+// isRoAnchorOnlyReq returns true if reqList consists entirely of
+// ipcLib.MntRoAnchor requests. Such batches are handled by
+// reqRoAnchorMounts() instead of reqMounts()'s normal path; see the comment
+// where this is called from reqMounts() for why.
+func isRoAnchorOnlyReq(reqList []ipcLib.MountReqInfo) bool {
+	if len(reqList) == 0 {
+		return false
+	}
+	for _, req := range reqList {
+		if req.Kind != ipcLib.MntRoAnchor {
+			return false
+		}
+	}
+	return true
+}
+
+// reqRoAnchorMounts anchors each requested source (see setupRoAnchor()) and
+// returns the resulting bind-mount specs, one per request, in order.
+func (mgr *SysboxMgr) reqRoAnchorMounts(id string, reqList []ipcLib.MountReqInfo) ([]specs.Mount, error) {
+	mounts := []specs.Mount{}
+
+	for _, req := range reqList {
+		anchor, err := setupRoAnchor(id, req.Source)
+		if err != nil {
+			return nil, fmt.Errorf("failed to anchor %s for container %s: %v",
+				req.Source, formatter.ContainerID{id}, err)
+		}
+
+		mounts = append(mounts, specs.Mount{
+			Source:      anchor,
+			Destination: req.Dest,
+			Type:        "bind",
+		})
+	}
+
+	return mounts, nil
 }
 
 // autoRemoveCheck finds out (best effort) if the container will be automatically
