@@ -42,6 +42,7 @@ import (
 	mount "github.com/nestybox/sysbox-libs/mount"
 	overlayUtils "github.com/nestybox/sysbox-libs/overlayUtils"
 	utils "github.com/nestybox/sysbox-libs/utils"
+	"github.com/nestybox/sysbox-mgr/internal/overlay"
 	"github.com/nestybox/sysbox-mgr/intf"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
@@ -403,7 +404,10 @@ func isRootfsOnOverlayfs(rootfs string) (bool, string, error) {
 	}
 
 	ovfsMntOpts := overlayUtils.GetMountOpt(mi)
-	ovfsUpperLayer := overlayUtils.GetUpperLayer(ovfsMntOpts)
+	ovfsUpperLayer, err := overlay.UpperLayer(rootfs, ovfsMntOpts)
+	if err != nil {
+		return false, "", err
+	}
 
 	return true, ovfsUpperLayer, nil
 }

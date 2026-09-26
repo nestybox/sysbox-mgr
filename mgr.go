@@ -667,7 +667,7 @@ func (mgr *SysboxMgr) update(updateInfo *ipcLib.UpdateInfo) error {
 	if info.rootfsOnOvfs && rootfsUidShiftType == idShiftUtils.IDMappedMount {
 		rootfsOvfsUpper, err := getRootfsOverlayUpperLayer(info.rootfs)
 		if err != nil {
-			return nil
+			return err
 		}
 		info.rootfsOvfsUpper = rootfsOvfsUpper
 		info.rootfsOvfsUpperChowned = true

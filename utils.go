@@ -36,6 +36,7 @@ import (
 	"github.com/nestybox/sysbox-libs/overlayUtils"
 	"github.com/nestybox/sysbox-libs/shiftfs"
 	libutils "github.com/nestybox/sysbox-libs/utils"
+	"github.com/nestybox/sysbox-mgr/internal/overlay"
 	intf "github.com/nestybox/sysbox-mgr/intf"
 	"github.com/nestybox/sysbox-mgr/subidAlloc"
 	"github.com/nestybox/sysbox-mgr/volMgr"
@@ -1010,9 +1011,7 @@ func getRootfsOverlayUpperLayer(rootfs string) (string, error) {
 		return "", nil
 	}
 	ovfsMntOpts := overlayUtils.GetMountOpt(mi)
-	ovfsUpperLayer := overlayUtils.GetUpperLayer(ovfsMntOpts)
-
-	return ovfsUpperLayer, nil
+	return overlay.UpperLayer(rootfs, ovfsMntOpts)
 }
 
 // ifThenElse is one-liner for "condition? a : b"

@@ -19,11 +19,12 @@ package rootfsCloner
 import (
 	"fmt"
 	"os"
-	"path/filepath"
+	"runtime"
 	"strings"
 
 	mapset "github.com/deckarep/golang-set"
 	"github.com/nestybox/sysbox-libs/mount"
+	"github.com/nestybox/sysbox-mgr/internal/overlay"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 
@@ -115,68 +116,28 @@ func setupBottomMount(ci *cloneInfo) error {
 	}
 	options = strings.TrimSuffix(tmpOpt, ",")
 
-	// Sometimes the overlayfs lowerdir options use relative paths (e.g.,
-	// lowerdir=54/fs:44/fs:...) instead of absolute paths (e.g.,
-	// lowerdir=/var/lib/docker/containerd/daemon/io.containerd.snapshotter.v1.overlayfs/snapshots/54/fs:...).
-	//
-	// It usually happens when the lowerdir has a large number of layers such
-	// that using the absolute path for each layer would exceed the number of
-	// characters that the mount syscall accepts in the options parameters.
-	//
-	// Since we are trying to remount the rootfs using the same relative-path
-	// lowerdir option, we need to find out the absolute base path for those
-	// options, so we can chdir to that path and then do the mount with the
-	// relative-path lowerdir option.
-	//
-	// To find out the path we look at the upperdir option, since that usually
-	// is an absolute path. For example, if upperdir=/var/lib/docker/containerd/daemon/io.containerd.snapshotter.v1.overlayfs/snapshots/55/fs
-	// and lowerdir=54/fs:44/fs, then we can infer those lowerdir options have base path
-	// "/var/lib/docker/containerd/daemon/io.containerd.snapshotter.v1.overlayfs/snapshots".
-	//
-	// This assumes of course that upperdir and lowerdir always have the same
-	// common path, and while this is not a requirement of overlayfs, it is
-	// always the case for the container runtimes.
-
-	lowerdirPathsAreAbsolute := true
-	lowerDirSuffixComponents := 0
+	var lowerLayers []string
 	for _, opt := range strings.Split(options, ",") {
 		if strings.Contains(opt, "lowerdir=") {
-			paths := strings.TrimPrefix(opt, "lowerdir=")
-			for _, p := range strings.Split(paths, ":") {
-				if filepath.IsAbs(p) {
-					// If one lowerdir path is absolute, assume all are
-					break
-				} else {
-					// If one lowerdir path is relative, assume all are
-					lowerdirPathsAreAbsolute = false
-					lowerDirSuffixComponents = len(strings.Split(p, "/"))
-					break
-				}
-			}
+			lowerLayers = strings.Split(strings.TrimPrefix(opt, "lowerdir="), ":")
+			break
 		}
 	}
 
-	currDir, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get curr dir: %s", err)
+	// Keep relative lowerdirs in the mount options to stay within the mount
+	// syscall's size limit; resolve them from a private cwd at their common base.
+	ovfsDirPath, lowerdirPathsAreRelative := overlay.MountBase(
+		ci.origRootfsMntInfo.Mountpoint, ci.origRootfsUpperDir, lowerLayers)
+	if lowerdirPathsAreRelative {
+		if err := overlay.ValidateMountBase(ovfsDirPath, lowerLayers[0]); err != nil {
+			return err
+		}
+		// Save absolute paths for bind mounts and removal detection outside the mounting thread.
+		ci.origRootfsUpperDir = overlay.ResolvePath(ovfsDirPath, ci.origRootfsUpperDir)
+		ci.origRootfsWorkDir = overlay.ResolvePath(ovfsDirPath, ci.origRootfsWorkDir)
 	}
 
-	if !lowerdirPathsAreAbsolute {
-		// remove the last X components of the upperdir path, where X is the
-		// number of path components in the relative lowerdir.
-		absPath := ci.origRootfsUpperDir
-		for i := 0; i < lowerDirSuffixComponents; i++ {
-			absPath = filepath.Dir(absPath)
-		}
-
-		// chdir to that path so that the overlayfs mount below works with the
-		// relative lowerdir paths.
-		if err := os.Chdir(absPath); err != nil {
-			return fmt.Errorf("failed to chdir: %s", err)
-		}
-	}
-
-	if err := unix.Mount("overlay", mergedDir, "overlay", uintptr(mntFlags), options); err != nil {
+	if err := mountOverlayFrom(ovfsDirPath, mergedDir, uintptr(mntFlags), options); err != nil {
 		return fmt.Errorf("failed to mount overlayfs on %s: %s", mergedDir, err)
 	}
 
@@ -184,13 +145,31 @@ func setupBottomMount(ci *cloneInfo) error {
 		return fmt.Errorf("failed to set mount prop flags on %s: %s", mergedDir, err)
 	}
 
-	if !lowerdirPathsAreAbsolute {
-		if err := os.Chdir(currDir); err != nil {
-			return fmt.Errorf("failed to chdir: %s", err)
-		}
+	return nil
+}
+
+// mountOverlayFrom resolves relative mount options without changing the daemon's cwd.
+func mountOverlayFrom(base, target string, flags uintptr, options string) error {
+	if base == "" {
+		return unix.Mount("overlay", target, "overlay", flags, options)
 	}
 
-	return nil
+	result := make(chan error, 1)
+	go func() {
+		runtime.LockOSThread()
+		// Do not unlock: this thread's private filesystem context must not be
+		// reused by another goroutine. Go retires the thread when we return.
+		if err := unix.Unshare(unix.CLONE_FS); err != nil {
+			result <- fmt.Errorf("failed to unshare filesystem context: %w", err)
+			return
+		}
+		if err := unix.Chdir(base); err != nil {
+			result <- fmt.Errorf("failed to chdir to %s: %w", base, err)
+			return
+		}
+		result <- unix.Mount("overlay", target, "overlay", flags, options)
+	}()
+	return <-result
 }
 
 // Removes the overlayfs bottom mount
@@ -201,22 +180,12 @@ func removeBottomMount(ci *cloneInfo) error {
 // Bind-mounts the cloned rootfs over the original rootfs. Adds the new mounts
 // to the cloneInfo struct.
 func bindOrigRootfs(ci *cloneInfo) error {
-	var origDiffDir, origWorkDir string
 	var bindMounts []bindMnt
 
 	mi := ci.origRootfsMntInfo
-	vfsOpts := mi.VfsOpts
 	origRootfs := mi.Mountpoint
-
-	// Find the upperdir and workdir of the original rootfs ovfs mount
-	for _, opt := range strings.Split(vfsOpts, ",") {
-		if strings.Contains(opt, "upperdir=") {
-			origDiffDir = strings.TrimPrefix(opt, "upperdir=")
-		}
-		if strings.Contains(opt, "workdir=") {
-			origWorkDir = strings.TrimPrefix(opt, "workdir=")
-		}
-	}
+	origDiffDir := ci.origRootfsUpperDir
+	origWorkDir := ci.origRootfsWorkDir
 
 	if origDiffDir == "" || origWorkDir == "" {
 		return fmt.Errorf("failed to parse overlayfs mount options for mountpoint %s", origRootfs)
