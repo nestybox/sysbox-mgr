@@ -32,7 +32,7 @@ var (
 	sysboxRunDir        string = "/run/sysbox"
 	sysboxLibDirDefault string = "/var/lib/sysbox"
 	sysboxMgrPidFile    string = sysboxRunDir + "/sysmgr.pid"
-	subidRangeSize      uint64 = 65536
+	subidRangeSize      uint64 = 268435456 // 4096 containers * 65536 UIDs each
 )
 
 const (

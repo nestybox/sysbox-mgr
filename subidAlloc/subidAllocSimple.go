@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"sync"
 
 	mapset "github.com/deckarep/golang-set"
 	"github.com/nestybox/sysbox-libs/formatter"
@@ -42,7 +43,12 @@ const (
 
 // subidAlloc class (implements the UidAllocator interface)
 type subidAlloc struct {
-	idRange user.SubID
+	mu          sync.Mutex
+	idRange     user.SubID
+	allocations map[string]uint32 // container ID -> block index
+	freeBlocks  []uint32          // recycled block indices
+	nextBlock   uint32            // next unallocated block index
+	maxBlocks   uint32            // total blocks available in range
 }
 
 // New creates an subidAlloc object
@@ -81,7 +87,9 @@ func New(userName string, subuidSrc, subgidSrc io.Reader) (intf.SubidAlloc, erro
 		return nil, fmt.Errorf("could not find matching subuid and subgids range for user %s", userName)
 	}
 
-	sub := &subidAlloc{}
+	sub := &subidAlloc{
+		allocations: make(map[string]uint32),
+	}
 
 	// find a common range that is large enough for the allocation size
 	foundRange := false
@@ -96,6 +104,8 @@ func New(userName string, subuidSrc, subgidSrc io.Reader) (intf.SubidAlloc, erro
 	if !foundRange {
 		return nil, fmt.Errorf("did not find a large enough subuid range for user %s (need %v)", userName, allocBlkSize)
 	}
+
+	sub.maxBlocks = uint32(sub.idRange.Count / int64(allocBlkSize))
 
 	return sub, nil
 }
@@ -130,15 +140,56 @@ func getCommonRanges(uidRanges, gidRanges []user.SubID) []user.SubID {
 }
 
 // Implements intf.SubidAlloc.Alloc
+//
+// Each call with a new container ID allocates an exclusive 65536-uid/gid block
+// from the subordinate range. Repeated calls with the same ID return the same block.
 func (sub *subidAlloc) Alloc(id string, size uint64) (uint32, uint32, error) {
-	subid := sub.idRange
-	logrus.Debugf("Alloc(%s, %v) = %v, %v",
-		formatter.ContainerID{id}, size, subid, subid)
-	return uint32(subid.SubID), uint32(subid.SubID), nil
+	sub.mu.Lock()
+	defer sub.mu.Unlock()
+
+	// Return existing allocation for this container
+	if blockIdx, ok := sub.allocations[id]; ok {
+		uid := uint32(sub.idRange.SubID) + blockIdx*allocBlkSize
+		logrus.Debugf("Alloc(%s, %v) = %v (existing block %d)",
+			formatter.ContainerID{id}, size, uid, blockIdx)
+		return uid, uid, nil
+	}
+
+	// Allocate a new block: prefer recycled, then fresh
+	var blockIdx uint32
+	if n := len(sub.freeBlocks); n > 0 {
+		blockIdx = sub.freeBlocks[n-1]
+		sub.freeBlocks = sub.freeBlocks[:n-1]
+	} else if sub.nextBlock < sub.maxBlocks {
+		blockIdx = sub.nextBlock
+		sub.nextBlock++
+	} else {
+		return 0, 0, fmt.Errorf("exhausted: no more subid blocks available (max %d containers)", sub.maxBlocks)
+	}
+
+	sub.allocations[id] = blockIdx
+	uid := uint32(sub.idRange.SubID) + blockIdx*allocBlkSize
+
+	logrus.Debugf("Alloc(%s, %v) = %v (block %d)",
+		formatter.ContainerID{id}, size, uid, blockIdx)
+	return uid, uid, nil
 }
 
 // Implements intf.SubidAlloc.Free
+//
+// Releases the block allocated for the given container, making it available for reuse.
 func (sub *subidAlloc) Free(id string) error {
-	logrus.Debugf("Free(%v)", formatter.ContainerID{id})
+	sub.mu.Lock()
+	defer sub.mu.Unlock()
+
+	blockIdx, ok := sub.allocations[id]
+	if !ok {
+		return fmt.Errorf("not-found: container %s has no allocation", id)
+	}
+
+	delete(sub.allocations, id)
+	sub.freeBlocks = append(sub.freeBlocks, blockIdx)
+
+	logrus.Debugf("Free(%v) released block %d", formatter.ContainerID{id}, blockIdx)
 	return nil
 }

@@ -60,8 +60,8 @@ func testAlloc(t *testing.T, subidAlloc intf.SubidAlloc, tests []allocTest) {
 
 func TestAllocBasic(t *testing.T) {
 
-	subuidCfg := strings.NewReader(`testUser:0:655360`)
-	subgidCfg := strings.NewReader(`testUser:0:655360`)
+	subuidCfg := strings.NewReader(`testUser:100000:655360`)
+	subgidCfg := strings.NewReader(`testUser:100000:655360`)
 
 	subidAlloc, err := New("testUser", subuidCfg, subgidCfg)
 	if err != nil {
@@ -71,9 +71,9 @@ func TestAllocBasic(t *testing.T) {
 
 	var tests = []allocTest{
 		// id, size, wantUid, wantGid, wantErr
-		{"1", 65536, 0, 0, ""},
-		{"2", 65536, 0, 0, ""},
-		{"3", 65536, 0, 0, ""},
+		{"1", 65536, 100000, 100000, ""},
+		{"2", 65536, 165536, 165536, ""},
+		{"3", 65536, 231072, 231072, ""},
 	}
 
 	testAlloc(t, subidAlloc, tests)
@@ -93,11 +93,12 @@ func TestAllocInvalidUser(t *testing.T) {
 
 func TestAllocMultiRange(t *testing.T) {
 
-	subuidCfg := strings.NewReader(`testUser:0:65536
-                                   testUser:524288:65536`)
+	// Two common ranges; allocator picks the first one large enough (100000:196608 = 3 blocks)
+	subuidCfg := strings.NewReader(`testUser:100000:196608
+                                   testUser:524288:196608`)
 
-	subgidCfg := strings.NewReader(`testUser:0:65536
-                                   testUser:524288:65536`)
+	subgidCfg := strings.NewReader(`testUser:100000:196608
+                                   testUser:524288:196608`)
 
 	subidAlloc, err := New("testUser", subuidCfg, subgidCfg)
 	if err != nil {
@@ -107,9 +108,9 @@ func TestAllocMultiRange(t *testing.T) {
 
 	var tests = []allocTest{
 		// id, size, wantUid, wantGid, wantErr
-		{"1", 65536, 0, 0, ""},
-		{"2", 65536, 0, 0, ""},
-		{"3", 65536, 0, 0, ""},
+		{"1", 65536, 100000, 100000, ""},
+		{"2", 65536, 165536, 165536, ""},
+		{"3", 65536, 231072, 231072, ""},
 	}
 
 	testAlloc(t, subidAlloc, tests)
@@ -142,33 +143,100 @@ func TestGetCommonRanges(t *testing.T) {
 
 func TestAllocCommonRange(t *testing.T) {
 
-	subuidCfg := strings.NewReader(`testUser:0:65536
+	subuidCfg := strings.NewReader(`testUser:100000:65536
                                    testUser:524288:65536`)
 
-	subgidCfg := strings.NewReader(`testUser:65536:65536
-		                             testUser:0:65536`)
+	subgidCfg := strings.NewReader(`testUser:165536:65536
+		                             testUser:100000:65536`)
 
 	subidAlloc, err := New("testUser", subuidCfg, subgidCfg)
 	if err != nil {
 		t.Errorf("failed to create allocator: %v", err)
 	}
 
+	// Same container ID twice -> returns the same exclusive block
 	var tests = []allocTest{
 		// id, size, wantUid, wantGid, wantErr
-		{"1", 65536, 0, 0, ""},
-		{"1", 65536, 0, 0, ""},
+		{"1", 65536, 100000, 100000, ""},
+		{"1", 65536, 100000, 100000, ""},
 	}
 
 	testAlloc(t, subidAlloc, tests)
 
-	subuidCfg = strings.NewReader(`testUser:0:65536
+	// No common ranges -> New() should fail
+	subuidCfg = strings.NewReader(`testUser:100000:65536
                                   testUser:524288:65536`)
 
-	subgidCfg = strings.NewReader(`testUser:65536:65536
-                                  testUser:231072:65536`)
+	subgidCfg = strings.NewReader(`testUser:165536:65536
+                                  testUser:331072:65536`)
 
 	subidAlloc, err = New("testUser", subuidCfg, subgidCfg)
 	if err == nil {
 		t.Errorf("subidAlloc() passed; expected failure")
+	}
+}
+
+func TestAllocExhausted(t *testing.T) {
+
+	// Range has room for exactly 2 blocks (2 * 65536 = 131072)
+	subuidCfg := strings.NewReader(`testUser:100000:131072`)
+	subgidCfg := strings.NewReader(`testUser:100000:131072`)
+
+	subidAlloc, err := New("testUser", subuidCfg, subgidCfg)
+	if err != nil {
+		t.Errorf("failed to create allocator: %v", err)
+		return
+	}
+
+	var tests = []allocTest{
+		{"1", 65536, 100000, 100000, ""},
+		{"2", 65536, 165536, 165536, ""},
+		{"3", 65536, 0, 0, "exhausted: no more subid blocks available (max 2 containers)"},
+	}
+
+	testAlloc(t, subidAlloc, tests)
+}
+
+func TestAllocFreeReuse(t *testing.T) {
+
+	subuidCfg := strings.NewReader(`testUser:100000:131072`)
+	subgidCfg := strings.NewReader(`testUser:100000:131072`)
+
+	alloc, err := New("testUser", subuidCfg, subgidCfg)
+	if err != nil {
+		t.Errorf("failed to create allocator: %v", err)
+		return
+	}
+
+	// Allocate 2 containers (fills all blocks)
+	uid1, _, err := alloc.Alloc("c1", 65536)
+	if err != nil || uid1 != 100000 {
+		t.Errorf("Alloc(c1) failed: got uid=%v, err=%v; want uid=100000", uid1, err)
+	}
+
+	uid2, _, err := alloc.Alloc("c2", 65536)
+	if err != nil || uid2 != 165536 {
+		t.Errorf("Alloc(c2) failed: got uid=%v, err=%v; want uid=165536", uid2, err)
+	}
+
+	// All blocks used; next alloc should fail
+	_, _, err = alloc.Alloc("c3", 65536)
+	if err == nil {
+		t.Errorf("Alloc(c3) should have failed (exhausted)")
+	}
+
+	// Free c1 and allocate c3 -> should reuse c1's block
+	if err := alloc.Free("c1"); err != nil {
+		t.Errorf("Free(c1) failed: %v", err)
+	}
+
+	uid3, _, err := alloc.Alloc("c3", 65536)
+	if err != nil || uid3 != 100000 {
+		t.Errorf("Alloc(c3) after Free(c1) failed: got uid=%v, err=%v; want uid=100000 (reused block)", uid3, err)
+	}
+
+	// Free non-existent container should error
+	if err := alloc.Free("nonexistent"); err == nil {
+		t.Errorf("Free(nonexistent) should have failed")
 	}
 }
