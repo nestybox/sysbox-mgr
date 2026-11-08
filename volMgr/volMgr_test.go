@@ -191,7 +191,7 @@ func TestCreateVol(t *testing.T) {
 
 	// create the volume and verify all is good
 	if _, err := testCreateVolWork(id, hostDir, rootfs, mountpoint, uid, gid, false); err != nil {
-		t.Errorf(err.Error())
+		t.Errorf("%v", err)
 	}
 }
 

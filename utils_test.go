@@ -232,7 +232,7 @@ user2:165536:65536
 sysbox:231072:268435456
 `
 	if err := testConfigSubidRangeHelper(subidFilePre, subidFilePost, 268435456, 100000, 600100000); err != nil {
-		t.Errorf(err.Error())
+		t.Errorf("%v", err)
 	}
 
 	// at beginning of range
@@ -241,7 +241,7 @@ sysbox:231072:268435456
 user2:165536:65536`
 
 	if err := testConfigSubidRangeHelper(subidFilePre, subidFilePost, 65536, 100000, 600100000); err != nil {
-		t.Errorf(err.Error())
+		t.Errorf("%v", err)
 	}
 
 	// in the middle of range
@@ -252,7 +252,7 @@ sysbox:165536:65536
 user2:231072:65536`
 
 	if err := testConfigSubidRangeHelper(subidFilePre, subidFilePost, 65536, 100000, 600100000); err != nil {
-		t.Errorf(err.Error())
+		t.Errorf("%v", err)
 	}
 
 	// not enought ids
@@ -269,7 +269,7 @@ user3:296608:65536`
 	subidFilePost = subidFilePre
 
 	if err := testConfigSubidRangeHelper(subidFilePre, subidFilePost, 65536, 100000, 600100000); err != nil {
-		t.Errorf(err.Error())
+		t.Errorf("%v", err)
 	}
 
 	// replace redundant sysbox entries with one entry
@@ -283,7 +283,7 @@ user3:165536:65536
 sysbox:231072,65536`
 
 	if err := testConfigSubidRangeHelper(subidFilePre, subidFilePost, 65536, 100000, 600100000); err != nil {
-		t.Errorf(err.Error())
+		t.Errorf("%v", err)
 	}
 }
 
@@ -338,7 +338,7 @@ some data
 
 	want := []uint64{100000, 600100000, 100000, 2147483648}
 	if err := testGetSubidLimitsHelper(fileData, want); err != nil {
-		t.Errorf(err.Error())
+		t.Errorf("%v", err)
 	}
 
 	// login.defs file without uid(gid) limits
@@ -348,7 +348,7 @@ some data
 
 	want = []uint64{100000, 4294967295, 100000, 4294967295}
 	if err := testGetSubidLimitsHelper(fileData, want); err != nil {
-		t.Errorf(err.Error())
+		t.Errorf("%v", err)
 	}
 }
 
