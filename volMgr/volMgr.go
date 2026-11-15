@@ -96,7 +96,17 @@ func (m *vmgr) CreateVol(id, rootfs, mountpoint string, uid, gid uint32, chownOn
 		return nil, fmt.Errorf("volume dir for container %v already exists", id)
 	}
 
+	// mountpoint originates from the container image (e.g., a custom docker
+	// data-root or k3s/rke2 data-dir; see sysbox-runc's getSpecialDirs()) and
+	// must therefore be treated as untrusted. sysbox-runc already rejects
+	// values that aren't a clean absolute path, but mountPath is re-verified
+	// here too, as a second, independent layer, since this code runs as host
+	// root and joins mountpoint with real host paths with no kernel-enforced
+	// containment (e.g., no pivot_root) to fall back on.
 	mountPath := filepath.Join(rootfs, mountpoint)
+	if !isWithinDir(mountPath, rootfs) {
+		return nil, fmt.Errorf("mountpoint %q escapes container rootfs", mountpoint)
+	}
 
 	rootfsOnOvfs, rootfsOvfsUpper, err := isRootfsOnOverlayfs(rootfs)
 	if err != nil {
@@ -115,6 +125,9 @@ func (m *vmgr) CreateVol(id, rootfs, mountpoint string, uid, gid uint32, chownOn
 	// syncOutPath is the overlayfs "upper" dir.
 	if rootfsOnOvfs {
 		syncOutPath = filepath.Join(rootfsOvfsUpper, mountpoint)
+		if !isWithinDir(syncOutPath, rootfsOvfsUpper) {
+			return nil, fmt.Errorf("mountpoint %q escapes overlayfs upper dir", mountpoint)
+		}
 	}
 
 	// create volume info
@@ -410,4 +423,13 @@ func isRootfsOnOverlayfs(rootfs string) (bool, string, error) {
 	}
 
 	return true, ovfsUpperLayer, nil
+}
+
+// isWithinDir reports whether path is dir itself or a lexical descendant of
+// it, once both are cleaned. It does not resolve symlinks, so it must not be
+// relied upon where a symlink inside dir could itself point outside dir.
+func isWithinDir(path, dir string) bool {
+	path = filepath.Clean(path)
+	dir = filepath.Clean(dir)
+	return path == dir || strings.HasPrefix(path, dir+string(os.PathSeparator))
 }
