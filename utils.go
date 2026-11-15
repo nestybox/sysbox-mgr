@@ -721,9 +721,10 @@ func sanitizeAnchorName(path string) string {
 	return strings.Trim(strings.ReplaceAll(filepath.Clean(path), "/", "-"), "-")
 }
 
-// roAnchorSubdir is the sysbox-mgr-owned directory (relative to
-// sysboxLibDir/<id>) under which the per-container anchors set up by
-// setupRoAnchor() are kept.
+// roAnchorSubdir is the sysbox-mgr-owned directory (relative to sysboxLibDir)
+// under which the per-container anchors set up by setupRoAnchor() are kept,
+// each container's anchors in its own sub-dir named after the container's ID
+// (i.e., sysboxLibDir/ro-anchors/<id>).
 const roAnchorSubdir = "ro-anchors"
 
 // setupRoAnchor is setupImmutableMounts()'s per-container, on-demand
@@ -733,7 +734,7 @@ const roAnchorSubdir = "ro-anchors"
 // requesting container (see teardownRoAnchors()).
 func setupRoAnchor(id, source string) (string, error) {
 
-	anchorRoot := filepath.Join(sysboxLibDir, id, roAnchorSubdir)
+	anchorRoot := filepath.Join(sysboxLibDir, roAnchorSubdir, id)
 	if err := os.MkdirAll(anchorRoot, 0755); err != nil {
 		return "", fmt.Errorf("failed to create %s: %v", anchorRoot, err)
 	}
@@ -752,7 +753,7 @@ func setupRoAnchor(id, source string) (string, error) {
 // were ever created.
 func teardownRoAnchors(id string) error {
 
-	anchorRoot := filepath.Join(sysboxLibDir, id, roAnchorSubdir)
+	anchorRoot := filepath.Join(sysboxLibDir, roAnchorSubdir, id)
 
 	entries, err := os.ReadDir(anchorRoot)
 	if os.IsNotExist(err) {
