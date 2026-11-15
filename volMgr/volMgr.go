@@ -167,7 +167,10 @@ func (m *vmgr) CreateVol(id, rootfs, mountpoint string, uid, gid uint32, chownOn
 	}
 
 	// Sync the contents of container's mountpoint to the newly created volume ("sync-in")
-	if _, err := os.Stat(mountPath); err == nil {
+	if exists, err := checkNotSymlink(mountPath); err != nil {
+		os.RemoveAll(volPath)
+		return nil, fmt.Errorf("volume sync-in failed: %v", err)
+	} else if exists {
 		if err = m.rsyncVol(mountPath, volPath, uid, gid, chownOnSync, shiftUp); err != nil {
 			os.RemoveAll(volPath)
 			return nil, fmt.Errorf("volume sync-in failed: %v", err)
@@ -243,9 +246,18 @@ func (m *vmgr) SyncOut(id string) error {
 		return nil
 	}
 
+	// A container's root user can unmount the special mount at vi.syncOutPath
+	// (the overlay upperdir entry for it) and recreate it as a symlink to an
+	// arbitrary host path before stop or pause triggers this sync-out; reject
+	// that rather than follow it as os.Stat would.
+	exists, err := checkNotSymlink(vi.syncOutPath)
+	if err != nil {
+		return fmt.Errorf("volume sync-out failed: %v", err)
+	}
+
 	// if the sync out target does not exist, create it (but only if we are going
 	// to be copying anything to it).
-	if _, err := os.Stat(vi.syncOutPath); os.IsNotExist(err) {
+	if !exists {
 		volIsEmpty, err := dirIsEmpty(vi.volPath)
 		if err != nil {
 			return fmt.Errorf("error while checking if %s is empty: %s", vi.volPath, err)
@@ -254,11 +266,12 @@ func (m *vmgr) SyncOut(id string) error {
 			if err := os.MkdirAll(vi.syncOutPath, vi.perm); err != nil {
 				return fmt.Errorf("failed to create directory %s: %s", vi.syncOutPath, err)
 			}
+			exists = true
 		}
 	}
 
 	// If the sync-out target exists, perform the rsync
-	if _, err := os.Stat(vi.syncOutPath); err == nil {
+	if exists {
 		if err := m.rsyncVol(vi.volPath, vi.syncOutPath, vi.uid, vi.gid, vi.shiftUids, shiftDown); err != nil {
 
 			// For sync-outs, the operation may fail if the target is removed while
@@ -432,4 +445,33 @@ func isWithinDir(path, dir string) bool {
 	path = filepath.Clean(path)
 	dir = filepath.Clean(dir)
 	return path == dir || strings.HasPrefix(path, dir+string(os.PathSeparator))
+}
+
+// checkNotSymlink reports whether a filesystem entry exists at path, using
+// Lstat rather than Stat so that it does not follow a symlink. exists is
+// false (with a nil error) when nothing is there, matching the "skip if
+// absent" behavior already used at each call site below.
+//
+// mountPath and syncOutPath name a special directory (e.g., the docker
+// data-root) that an untrusted container image can replace with an
+// absolute symlink to a host path (sync-in), or that a container's root
+// user can recreate as a symlink after unmounting it (sync-out). Following
+// such a symlink, as os.Stat would, lets a host-root rsync read, write, or
+// --delete files at an arbitrary host location instead of the intended
+// one. isWithinDir, above, cannot catch this: it only validates the path
+// string, not what is actually on disk at that path.
+func checkNotSymlink(path string) (exists bool, err error) {
+	fi, err := os.Lstat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	if fi.Mode()&os.ModeSymlink != 0 {
+		return false, fmt.Errorf("%s is a symlink, refusing to use it", path)
+	}
+
+	return true, nil
 }
