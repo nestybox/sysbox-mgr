@@ -540,3 +540,72 @@ func TestSyncOutSkip(t *testing.T) {
 		t.Errorf("stat(%s) failed: %v", mountPath, err)
 	}
 }
+
+// TestIsWithinDir checks that isWithinDir accepts the directory itself and its
+// descendants, and rejects siblings, ancestors, and lookalike prefixes.
+func TestIsWithinDir(t *testing.T) {
+	tests := []struct {
+		path string
+		dir  string
+		want bool
+	}{
+		{"/rootfs", "/rootfs", true},
+		{"/rootfs/var/lib/docker", "/rootfs", true},
+		{"/rootfs/a/../b", "/rootfs", true},
+		{"/rootfs/../etc", "/rootfs", false},
+		{"/rootfs/../../etc", "/rootfs", false},
+		{"/rootfs-other/var", "/rootfs", false},
+		{"/", "/rootfs", false},
+		{"/tmp/host", "/rootfs", false},
+	}
+
+	for _, tc := range tests {
+		if got := isWithinDir(tc.path, tc.dir); got != tc.want {
+			t.Errorf("isWithinDir(%q, %q) = %v, want %v", tc.path, tc.dir, got, tc.want)
+		}
+	}
+}
+
+// TestCheckNotSymlink checks that checkNotSymlink reports regular entries as
+// present, missing ones as absent, and refuses symlinks without following them.
+func TestCheckNotSymlink(t *testing.T) {
+	dir := t.TempDir()
+
+	// A regular directory and a symlink (to a directory that exists).
+	realDir := filepath.Join(dir, "real")
+	if err := os.Mkdir(realDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink(realDir, link); err != nil {
+		t.Fatal(err)
+	}
+
+	// A regular directory exists.
+	exists, err := checkNotSymlink(realDir)
+	if err != nil || !exists {
+		t.Errorf("checkNotSymlink(dir) = (%v, %v), want (true, nil)", exists, err)
+	}
+
+	// A missing path is reported as absent, without an error.
+	exists, err = checkNotSymlink(filepath.Join(dir, "missing"))
+	if err != nil || exists {
+		t.Errorf("checkNotSymlink(missing) = (%v, %v), want (false, nil)", exists, err)
+	}
+
+	// A symlink is refused, even though its target exists.
+	exists, err = checkNotSymlink(link)
+	if err == nil || exists {
+		t.Errorf("checkNotSymlink(symlink) = (%v, %v), want (false, error)", exists, err)
+	}
+
+	// A dangling symlink is refused too, rather than reported as absent.
+	dangling := filepath.Join(dir, "dangling")
+	if err := os.Symlink(filepath.Join(dir, "gone"), dangling); err != nil {
+		t.Fatal(err)
+	}
+	exists, err = checkNotSymlink(dangling)
+	if err == nil || exists {
+		t.Errorf("checkNotSymlink(dangling) = (%v, %v), want (false, error)", exists, err)
+	}
+}
